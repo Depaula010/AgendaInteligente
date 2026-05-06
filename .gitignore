@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/back/AgendaInteligente.Api/bin
+/back/.vs
+/back/AgendaInteligente.Api/obj
+/back/AgendaInteligente.Api.Tests/bin
+/back/AgendaInteligente.Api.Tests/obj
