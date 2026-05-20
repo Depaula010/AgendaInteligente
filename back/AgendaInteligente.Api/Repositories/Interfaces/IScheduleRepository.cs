@@ -11,6 +11,9 @@ public interface IScheduleRepository
     Task<IReadOnlyList<Schedule>> GetByProfessionalAsync(
         Guid professionalId, DateTime from, DateTime to, CancellationToken ct = default);
 
+    Task<IReadOnlyList<Schedule>> GetBlockoutsByProfessionalAsync(
+        Guid professionalId, DateTime from, DateTime to, CancellationToken ct = default);
+
     Task<Schedule?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>

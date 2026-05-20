@@ -1,5 +1,6 @@
 using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Domain.Enums;
+using AgendaInteligente.Api.Domain.Exceptions;
 using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services;
 using AgendaInteligente.Api.Services.CalendarSync;
@@ -16,6 +17,7 @@ public sealed class ScheduleServiceTests
     private readonly Mock<IScheduleRepository>       _scheduleRepoMock = new();
     private readonly Mock<IServiceCatalogRepository> _serviceRepoMock  = new();
     private readonly Mock<ICalendarSyncQueue>        _syncQueueMock    = new();
+    private readonly Mock<IWaitlistService>          _waitlistSvcMock  = new();
     private readonly ScheduleService _sut;
 
     // IDs fixos para legibilidade dos testes
@@ -35,10 +37,17 @@ public sealed class ScheduleServiceTests
 
     public ScheduleServiceTests()
     {
+        // Configura o mock da waitlist para não fazer nada por padrão (não afeta testes existentes)
+        _waitlistSvcMock
+            .Setup(w => w.ProcessCancellationAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .Returns(Task.CompletedTask);
+
         _sut = new ScheduleService(
             _scheduleRepoMock.Object,
             _serviceRepoMock.Object,
             _syncQueueMock.Object,
+            _waitlistSvcMock.Object,
             NullLogger<ScheduleService>.Instance);
     }
 
@@ -154,13 +163,13 @@ public sealed class ScheduleServiceTests
             default), Times.Once);
     }
 
-    // ── CreateAsync: validação de conflito ─────────────────────────────────────
+    // ── CreateAsync: conflito → ScheduleConflictException com alternativas ─────
 
     [Fact]
-    public async Task CreateAsync_WhenConflictExists_ThrowsInvalidOperationException()
+    public async Task CreateAsync_WhenConflictExists_ThrowsScheduleConflictException()
     {
-        // Arrange
-        var start = new DateTime(2026, 6, 10, 9, 0, 0, DateTimeKind.Utc);
+        // Arrange — slot de 10h–11h ocupado; agenda livre nas demais horas do dia
+        var start = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc);
         var conflicting = new Schedule
         {
             Id             = Guid.NewGuid(),
@@ -170,23 +179,77 @@ public sealed class ScheduleServiceTests
         };
 
         SetupServiceExists();
-        SetupConflicts([conflicting]);
+
+        // Primeira chamada: conflito no horário solicitado
+        // Demais chamadas (candidatos alternativos): sem conflito
+        _scheduleRepoMock
+            .SetupSequence(r => r.GetConflictingAsync(ProfessionalId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .ReturnsAsync([conflicting])   // slot solicitado — conflito
+            .ReturnsAsync([])              // 1.º candidato alternativo
+            .ReturnsAsync([])              // 2.º candidato alternativo
+            .ReturnsAsync([]);             // 3.º candidato alternativo
+
+        // Act & Assert — deve lançar ScheduleConflictException (não InvalidOperationException genérica)
+        var ex = await Assert.ThrowsAsync<ScheduleConflictException>(
+            () => _sut.CreateAsync(CustomerId, ProfessionalId, ServiceId, start));
+
+        Assert.NotNull(ex.SuggestedAlternatives);
+        // Garante que pelo menos 1 alternativa foi encontrada (não vazio)
+        Assert.NotEmpty(ex.SuggestedAlternatives);
+        // Garante que as alternativas são datas futuras em UTC
+        Assert.All(ex.SuggestedAlternatives, dt => Assert.Equal(DateTimeKind.Utc, dt.Kind));
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenConflictExists_SuggestedAlternatives_DoNotIncludeConflictedSlot_WhenItRemainsBlocked()
+    {
+        // Arrange — slot de 10h bloqueado em TODAS as consultas (incluindo busca de alternativas)
+        // Slots de 09h30 e 10h30 estão livres
+        var start = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc);
+        var conflicting = new Schedule { Id = Guid.NewGuid(), ProfessionalId = ProfessionalId };
+
+        SetupServiceExists();
+
+        // 10:00–11:00 conflita sempre (slot principal e quando avaliado na busca de alternativas)
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc),
+                new DateTime(2026, 6, 10, 11, 0, 0, DateTimeKind.Utc),
+                default))
+            .ReturnsAsync([conflicting]);
+
+        // Todos os outros slots livres
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d != new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc)),
+                It.IsAny<DateTime>(),
+                default))
+            .ReturnsAsync([]);
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = await Assert.ThrowsAsync<ScheduleConflictException>(
             () => _sut.CreateAsync(CustomerId, ProfessionalId, ServiceId, start));
+
+        // As alternativas não devem conter 10:00 (que permaneceu bloqueado)
+        Assert.DoesNotContain(new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc), ex.SuggestedAlternatives);
+        Assert.NotEmpty(ex.SuggestedAlternatives);
     }
+
 
     [Fact]
     public async Task CreateAsync_WhenConflictExists_DoesNotCallRepositoryCreate()
     {
         // Arrange
-        var start = new DateTime(2026, 6, 10, 9, 0, 0, DateTimeKind.Utc);
+        var start = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc);
         SetupServiceExists();
-        SetupConflicts([new Schedule { Id = Guid.NewGuid() }]);
+
+        // Todos os slots retornam conflito para simplificar o mock
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
 
         // Act
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<ScheduleConflictException>(
             () => _sut.CreateAsync(CustomerId, ProfessionalId, ServiceId, start));
 
         // Assert — nenhum insert deve ter ocorrido
@@ -212,7 +275,7 @@ public sealed class ScheduleServiceTests
 
     [Theory]
     [MemberData(nameof(OverlappingIntervals))]
-    public async Task CreateAsync_OverlappingInterval_ThrowsConflict(DateTime existStart, DateTime existEnd)
+    public async Task CreateAsync_OverlappingInterval_ThrowsScheduleConflictException(DateTime existStart, DateTime existEnd)
     {
         // Novo agendamento: 10h–11h
         var newStart = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc);
@@ -225,9 +288,17 @@ public sealed class ScheduleServiceTests
         };
 
         SetupServiceExists(); // 60 min → 10h–11h
-        SetupConflicts([existing]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // Primeira chamada (slot solicitado): conflito
+        // Demais (candidatos): sem conflito
+        _scheduleRepoMock
+            .SetupSequence(r => r.GetConflictingAsync(ProfessionalId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .ReturnsAsync([existing])
+            .ReturnsAsync([])
+            .ReturnsAsync([])
+            .ReturnsAsync([]);
+
+        await Assert.ThrowsAsync<ScheduleConflictException>(
             () => _sut.CreateAsync(CustomerId, ProfessionalId, ServiceId, newStart));
     }
 
@@ -241,6 +312,128 @@ public sealed class ScheduleServiceTests
             { d.AddHours(9),  d.AddHours(10).AddMinutes(30) }, // início antes, sobreposição parcial
             { d.AddHours(10).AddMinutes(15), d.AddHours(10).AddMinutes(45) }, // totalmente dentro
         };
+    }
+
+    // ── GetAlternativeTimesAsync ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAlternativeTimesAsync_WhenDayHasAvailableSlots_ReturnsClosestAlternatives()
+    {
+        // Arrange — profissional com 1 conflito no horário pedido, demais livres
+        // Solicitado: 10h00; esperamos que os mais próximos (09h30 ou 10h30) sejam sugeridos
+        var requested = new DateTime(2099, 6, 10, 10, 0, 0, DateTimeKind.Utc); // futuro garantido
+
+        SetupServiceExists(); // 60 min
+
+        // Todos os slots livres, exceto o exato das 10h
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                new DateTime(2099, 6, 10, 10, 0, 0, DateTimeKind.Utc),
+                new DateTime(2099, 6, 10, 11, 0, 0, DateTimeKind.Utc),
+                default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.IsNotIn(new DateTime(2099, 6, 10, 10, 0, 0, DateTimeKind.Utc)),
+                It.IsAny<DateTime>(),
+                default))
+            .ReturnsAsync([]);
+
+        // Act
+        var alternatives = await _sut.GetAlternativeTimesAsync(ProfessionalId, ServiceId, requested, count: 3);
+
+        // Assert
+        Assert.NotEmpty(alternatives);
+        Assert.True(alternatives.Count <= 3);
+        Assert.All(alternatives, dt =>
+        {
+            Assert.Equal(DateTimeKind.Utc, dt.Kind);
+            Assert.NotEqual(requested, dt);
+        });
+    }
+
+    [Fact]
+    public async Task GetAlternativeTimesAsync_WhenCurrentDayIsFullyBooked_ReturnsFromNextDays()
+    {
+        // Arrange — dia solicitado completamente bloqueado, próximo dia livre
+        var requested = new DateTime(2099, 7, 1, 10, 0, 0, DateTimeKind.Utc);
+
+        SetupServiceExists(); // 60 min
+
+        var requestedDate = requested.Date;
+
+        // Todos os slots do dia D bloqueados
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d.Date == requestedDate),
+                It.IsAny<DateTime>(),
+                default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        // Dia D+1 completamente livre
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d.Date == requestedDate.AddDays(1)),
+                It.IsAny<DateTime>(),
+                default))
+            .ReturnsAsync([]);
+
+        // Act
+        var alternatives = await _sut.GetAlternativeTimesAsync(ProfessionalId, ServiceId, requested, count: 3, maxSearchDays: 7);
+
+        // Assert — deve ter encontrado alternativas no D+1
+        Assert.NotEmpty(alternatives);
+        Assert.All(alternatives, dt => Assert.True(dt.Date >= requestedDate.AddDays(1)));
+    }
+
+    [Fact]
+    public async Task GetAlternativeTimesAsync_WhenNoSlotsFoundInWindow_ReturnsEmptyList()
+    {
+        // Arrange — toda a janela de busca está bloqueada
+        var requested = new DateTime(2099, 8, 1, 10, 0, 0, DateTimeKind.Utc);
+
+        SetupServiceExists();
+
+        // Todos os slots conflitam (agenda completamente cheia)
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        // Act
+        var alternatives = await _sut.GetAlternativeTimesAsync(ProfessionalId, ServiceId, requested, count: 3, maxSearchDays: 2);
+
+        // Assert — nenhuma alternativa disponível
+        Assert.Empty(alternatives);
+    }
+
+    [Fact]
+    public async Task GetAlternativeTimesAsync_ShouldNotSuggestPastSlots()
+    {
+        // Arrange — data no passado para garantir que "candidate < UtcNow" filtra tudo
+        var pastRequested = new DateTime(2000, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+        SetupServiceExists();
+        SetupNoConflicts(); // sem conflitos no mock, mas todos os slots são passado
+
+        // Act
+        var alternatives = await _sut.GetAlternativeTimesAsync(ProfessionalId, ServiceId, pastRequested, count: 3, maxSearchDays: 1);
+
+        // Assert — nenhum slot passado deve ser sugerido
+        Assert.Empty(alternatives);
+    }
+
+    [Fact]
+    public async Task GetAlternativeTimesAsync_WhenServiceNotFound_ThrowsKeyNotFoundException()
+    {
+        // Arrange
+        _serviceRepoMock
+            .Setup(r => r.GetByIdAsync(ServiceId, default))
+            .ReturnsAsync((Service?)null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => _sut.GetAlternativeTimesAsync(ProfessionalId, ServiceId, DateTime.UtcNow.AddHours(2)));
     }
 
     // ── UpdateAsync: cenários de sucesso ──────────────────────────────────────
@@ -380,5 +573,181 @@ public sealed class ScheduleServiceTests
                 m.Operation == CalendarSyncOperation.Delete && 
                 m.GoogleCalendarEventId == "google-id-123"), 
             default), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenScheduleExists_TriggersWaitlistProcessing()
+    {
+        // Arrange
+        var id    = Guid.NewGuid();
+        var start = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc);
+        var schedule = new Schedule
+        {
+            Id             = id,
+            ProfessionalId = ProfessionalId,
+            StartDateTime  = start,
+            EndDateTime    = start.AddHours(1)
+        };
+
+        _scheduleRepoMock.Setup(r => r.GetByIdAsync(id, default)).ReturnsAsync(schedule);
+        _scheduleRepoMock.Setup(r => r.DeleteAsync(id, default)).ReturnsAsync(true);
+
+        // Act
+        await _sut.DeleteAsync(id);
+
+        // Assert — deve acionar a lista de espera com os dados do slot liberado
+        _waitlistSvcMock.Verify(w => w.ProcessCancellationAsync(
+            ProfessionalId, start, start.AddHours(1), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenStatusIsCancelled_TriggersWaitlistProcessing()
+    {
+        // Arrange
+        var id    = Guid.NewGuid();
+        var start = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc);
+        var schedule = new Schedule
+        {
+            Id             = id,
+            ProfessionalId = ProfessionalId,
+            StartDateTime  = start,
+            EndDateTime    = start.AddHours(1)
+        };
+
+        _scheduleRepoMock.Setup(r => r.GetByIdAsync(id, default)).ReturnsAsync(schedule);
+        _scheduleRepoMock.Setup(r => r.UpdateStatusAsync(id, ScheduleStatus.Cancelled, default)).ReturnsAsync(true);
+
+        // Act
+        await _sut.UpdateStatusAsync(id, ScheduleStatus.Cancelled);
+
+        // Assert — lista de espera deve ter sido acionada
+        _waitlistSvcMock.Verify(w => w.ProcessCancellationAsync(
+            ProfessionalId, start, start.AddHours(1), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenStatusIsNotCancelled_DoesNotTriggerWaitlist()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+        _scheduleRepoMock
+            .Setup(r => r.UpdateStatusAsync(id, ScheduleStatus.Confirmed, default))
+            .ReturnsAsync(true);
+
+        // Act
+        await _sut.UpdateStatusAsync(id, ScheduleStatus.Confirmed);
+
+        // Assert — nenhuma chamada à lista de espera para status não-cancelamento
+        _waitlistSvcMock.Verify(w => w.ProcessCancellationAsync(
+            It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), default), Times.Never);
+    }
+
+    // ── Blockouts (Folgas) ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateBlockoutAsync_WithValidData_ReturnsBlockoutAndEnqueuesSync()
+    {
+        // Arrange
+        var start = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc);
+        var end   = new DateTime(2026, 6, 10, 18, 0, 0, DateTimeKind.Utc);
+        var reason = "Feriado Local";
+
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, start, end, default))
+            .ReturnsAsync(new List<Schedule>());
+
+        _scheduleRepoMock
+            .Setup(r => r.CreateAsync(It.IsAny<Schedule>(), default))
+            .ReturnsAsync((Schedule s, CancellationToken ct) => s);
+
+        // Act
+        var result = await _sut.CreateBlockoutAsync(ProfessionalId, start, end, reason, isAllDay: true);
+
+        // Assert
+        Assert.True(result.IsBlocked);
+        Assert.Equal(reason, result.BlockReason);
+        Assert.True(result.IsAllDay);
+        Assert.Equal(ScheduleStatus.Confirmed, result.Status);
+
+        _syncQueueMock.Verify(q => q.EnqueueAsync(
+            It.Is<CalendarSyncMessage>(m => m.Operation == CalendarSyncOperation.Upsert), 
+            default), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateBlockoutAsync_WhenConflictExists_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var start = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc);
+        var end   = new DateTime(2026, 6, 10, 18, 0, 0, DateTimeKind.Utc);
+
+        var conflictingSchedule = new Schedule
+        {
+            Id = Guid.NewGuid(),
+            StartDateTime = start.AddHours(1),
+            EndDateTime = start.AddHours(2)
+        };
+
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, start, end, default))
+            .ReturnsAsync(new List<Schedule> { conflictingSchedule });
+
+        // Act
+        var exception = await Record.ExceptionAsync(() =>
+            _sut.CreateBlockoutAsync(ProfessionalId, start, end, "Férias", false));
+
+        // Assert
+        Assert.IsType<InvalidOperationException>(exception);
+        Assert.Contains("já existem agendamentos ou folgas", exception.Message);
+    }
+
+    [Fact]
+    public async Task UpdateBlockoutAsync_WithValidData_UpdatesBlockoutAndEnqueuesSync()
+    {
+        // Arrange
+        var id    = Guid.NewGuid();
+        var start = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc);
+        var end   = new DateTime(2026, 6, 10, 18, 0, 0, DateTimeKind.Utc);
+
+        var blockout = new Schedule
+        {
+            Id             = id,
+            ProfessionalId = ProfessionalId,
+            IsBlocked      = true,
+            BlockReason    = "Férias"
+        };
+
+        _scheduleRepoMock.Setup(r => r.GetByIdAsync(id, default)).ReturnsAsync(blockout);
+        
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, start, end, default))
+            .ReturnsAsync(new List<Schedule> { blockout }); // Próprio blockout na query de conflito
+
+        // Act
+        var result = await _sut.UpdateBlockoutAsync(id, start, end, "Férias Editadas", isAllDay: true);
+
+        // Assert
+        Assert.Equal("Férias Editadas", result.BlockReason);
+        Assert.True(result.IsAllDay);
+        _scheduleRepoMock.Verify(r => r.UpdateAsync(blockout, default), Times.Once);
+        _syncQueueMock.Verify(q => q.EnqueueAsync(It.IsAny<CalendarSyncMessage>(), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateBlockoutAsync_WhenTargetIsNotBlockout_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+        var schedule = new Schedule { Id = id, IsBlocked = false }; // Agendamento normal
+
+        _scheduleRepoMock.Setup(r => r.GetByIdAsync(id, default)).ReturnsAsync(schedule);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() =>
+            _sut.UpdateBlockoutAsync(id, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), "Erro", false));
+
+        // Assert
+        Assert.IsType<InvalidOperationException>(exception);
+        Assert.Contains("não é um bloqueio", exception.Message);
     }
 }

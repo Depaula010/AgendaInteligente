@@ -124,6 +124,33 @@ public sealed class GoogleCalendarApiService : IGoogleCalendarApiService
     /// </summary>
     private static Event MapToGoogleEvent(Schedule schedule)
     {
+        if (schedule.IsBlocked)
+        {
+            var title = string.IsNullOrWhiteSpace(schedule.BlockReason)
+                ? "🔒 Bloqueado"
+                : $"🔒 Bloqueado — {schedule.BlockReason}";
+
+            var ev = new Event
+            {
+                Summary     = title,
+                Description = "Período bloqueado na Agenda Inteligente.",
+                ColorId     = "11", // Tomato / Red no Google Calendar
+            };
+
+            if (schedule.IsAllDay)
+            {
+                ev.Start = new EventDateTime { Date = schedule.StartDateTime.ToString("yyyy-MM-dd") };
+                ev.End   = new EventDateTime { Date = schedule.EndDateTime.ToString("yyyy-MM-dd") };
+            }
+            else
+            {
+                ev.Start = new EventDateTime { DateTimeDateTimeOffset = schedule.StartDateTime, TimeZone = "UTC" };
+                ev.End   = new EventDateTime { DateTimeDateTimeOffset = schedule.EndDateTime, TimeZone = "UTC" };
+            }
+
+            return ev;
+        }
+
         var serviceName  = schedule.Service?.Name    ?? "Serviço";
         var customerName = schedule.Customer?.Name   ?? "Cliente";
         var notes        = schedule.Notes;

@@ -6,7 +6,8 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
 
 ## 🚧 1. Etapa Atual em Desenvolvimento
 
-(Aguardando próximo comando do roadmap)
+**Frontend PWA — Dashboard (Painel Principal de Agendamentos)**
+- Próximo passo: implementar a tela de Dashboard com visualização de agenda estilo Google Calendar.
 
 ---
 
@@ -31,8 +32,9 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
 * [x] **Migrations Iniciais do Entity Framework Core:**
   * [x] `AppDbContextFactory` atualizada para ler `appsettings.Development.json` (sem hardcode de senha).
   * [x] Migration `InitialCreate` gerada (`Data/Migrations/20260429174309_InitialCreate.cs`).
+  * [x] Migrations secundárias: `AddGeminiConfigToTenantSettings`, `AddGoogleCalendarToProfessional`, `AddBlockoutToSchedule`.
   * [x] 7 tabelas mapeadas: `tenants`, `customers`, `professionals`, `services`, `schedules`, `tenant_settings`, `waitlist`.
-  * [x] Índices críticos gerados: conflito de horário `ix_schedules_tenant_professional_datetime`, `customers(tenant_id, phone)` único, `professionals(tenant_id, email)` único.
+  * [x] Índices críticos gerados: conflito de horário `ix_schedules_tenant_professional_datetime`, bloqueios `ix_schedules_blockouts`, `customers(tenant_id, phone)` único, `professionals(tenant_id, email)` único.
   * [x] Enums mapeados como `integer` (performance).
   * [x] Pacotes EF Core 9.0.4 fixados no projeto de testes (0 warnings de conflito de versão).
   * [x] Build da solution: **0 erros, 0 warnings**.
@@ -83,6 +85,16 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
   * [x] **Testes Unitários:** `ApiKeyAuthFilterTests` (3 testes), `WebhookServiceTests` (12 testes).
   * [x] **Total: 70 testes — 70 aprovados, 0 falhas, 0 avisos.**
 
+* [x] **B17 — Loop Completo bot↔backend:**
+  * [x] Pacote `Microsoft.Extensions.Caching.StackExchangeRedis 9.0.4` adicionado. Versão `Google.Apis.Calendar.v3` corrigida para `1.69.0.3667` (eliminou warning NU1603 pré-existente).
+  * [x] `IConversationHistoryService` + `ConversationHistoryService`: Redis `chat:{tenantId}:{phone}` (TTL 24h) e debounce `debounce:{messageId}` (TTL 30s). Degradação graciosa se Redis offline.
+  * [x] `IWhatsAppSendService` + `WhatsAppSendService`: canal único de saída para bot Node.js (POST `{BotUrl}/api/v1/whatsapp/send`). Stub via logger quando `BotUrl` não configurado.
+  * [x] `WhatsAppBotOptions` para binding de `WhatsAppBot:BotUrl`.
+  * [x] `WebhookService` completo — fluxo: debounce → load history → `AiOrchestratorService` → save history (nova lista imutável) → `IWhatsAppSendService`.
+  * [x] `Program.cs`: `AddStackExchangeRedisCache` com fallback `AddDistributedMemoryCache`. `appsettings.json` com seção `WhatsAppBot`.
+  * [x] **Novos testes (13):** `ConversationHistoryServiceTests` (7) + `WebhookServiceTests` (+7 novos aos 5 existentes).
+  * [x] **Total Geral: 110 testes — 110 aprovados, 0 falhas, 0 warnings.**
+
 * [x] **Integração IA (Google Gemini):**
   * [x] Configurações no `TenantSettings` (`GeminiApiKey`, `GeminiModel` com fallback via `appsettings.json`).
   * [x] Migration do Entity Framework e banco atualizado.
@@ -102,15 +114,65 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
   * [x] **Testes Unitários:** `CalendarSyncQueueTests` (1 teste), `GoogleCalendarSyncBackgroundServiceTests` (1 teste), `ScheduleServiceTests` (atualizado para cobrir a fila).
   * [x] **Total Geral: 78 testes — 78 aprovados, 0 falhas, 0 avisos.**
 
+* [x] **Sugestão Inteligente de Horários Alternativos:**
+  * [x] Nova exception de domínio tipada `ScheduleConflictException` com propriedade `SuggestedAlternatives` (`IReadOnlyList<DateTime>`).
+  * [x] Método `GetAlternativeTimesAsync` adicionado à interface `IScheduleService` e implementado em `ScheduleService`.
+  * [x] Algoritmo de busca: varre slots de 30 em 30 min no horário comercial (08h–18h UTC) do dia solicitado e dos D+1..D+7 dias seguintes, retornando os 3 mais próximos ao horário pedido.
+  * [x] `CreateAsync` refatorado: ao detectar conflito, busca alternativas e lança `ScheduleConflictException` tipada (em vez de `InvalidOperationException` genérica).
+  * [x] `UpdateAsync` mantém `InvalidOperationException` (sem busca de alternativas — comportamento intencional para reagendamento pelo profissional).
+  * [x] **Novos testes (6 adicionados):** `CreateAsync_WhenConflictExists_ThrowsScheduleConflictException`, `CreateAsync_WhenConflictExists_SuggestedAlternatives_DoNotIncludeConflictedSlot_WhenItRemainsBlocked`, `CreateAsync_WhenConflictExists_DoesNotCallRepositoryCreate` (atualizado), `GetAlternativeTimesAsync_WhenDayHasAvailableSlots_ReturnsClosestAlternatives`, `GetAlternativeTimesAsync_WhenCurrentDayIsFullyBooked_ReturnsFromNextDays`, `GetAlternativeTimesAsync_WhenNoSlotsFoundInWindow_ReturnsEmptyList`, `GetAlternativeTimesAsync_ShouldNotSuggestPastSlots`, `GetAlternativeTimesAsync_WhenServiceNotFound_ThrowsKeyNotFoundException`.
+  * [x] Testes de sobreposição (Theory `OverlappingIntervals`) atualizados para `ScheduleConflictException`.
+  * [x] **Total Geral: 84 testes — 84 aprovados, 0 falhas, 0 avisos.**
+
+* [x] **Exposição de `ScheduleConflictException.SuggestedAlternatives` no endpoint `POST /api/v1/schedules`:**
+  * [x] `ScheduleEndpoints.cs` atualizado para capturar `ScheduleConflictException` de forma específica (antes de qualquer fallback genérico).
+  * [x] Endpoint retorna **HTTP 409** com body JSON `{ "error": "...", "suggestedAlternatives": [...] }`, expondo a lista de slots disponíveis ao cliente/bot.
+  * [x] `KeyNotFoundException` mapeada para **HTTP 404** no mesmo handler.
+
+* [x] **Lista de Espera Inteligente — Trigger por Código (cancela → notifica via WhatsApp):**
+  * [x] `IWaitlistRepository` e `WaitlistRepository` criados com busca FIFO por data/profissional filtrada pelo Global Query Filter Multi-Tenant.
+  * [x] `IWhatsAppNotificationService` e `WhatsAppNotificationService` criados como abstração de envio (stub via logger — integração com bot Node.js plugável futuramente).
+  * [x] `IWaitlistService` e `WaitlistService` implementados com resiliência em dois níveis: falha no repositório não propaga ao cancelamento; falha em uma notificação não impede as demais.
+  * [x] `ScheduleService` injetado com `IWaitlistService`: aciona `ProcessCancellationAsync` em `DeleteAsync` e em `UpdateStatusAsync` quando status = `Cancelled`.
+  * [x] `Program.cs` atualizado com os 3 novos `AddScoped`.
+  * [x] **Novos testes (9 adicionados):** `WaitlistServiceTests` (6): happy-path notifica todos, atualiza status Notified, fila vazia não envia, repo lança exceção não propaga, cliente sem telefone ignorado, WhatsApp falha no 1º não impede 2º. `ScheduleServiceTests` (3): `DeleteAsync_TriggersWaitlistProcessing`, `UpdateStatusAsync_WhenCancelled_TriggersWaitlist`, `UpdateStatusAsync_WhenNotCancelled_DoesNotTriggerWaitlist`.
+  * [x] **Total Geral: 93 testes — 93 aprovados, 0 falhas, 0 avisos.**
+
+* [x] **Setup Frontend PWA (React + Vite) e Telas de Autenticação:**
+  * [x] Projeto React 19 + TypeScript inicializado com Vite 6 na pasta `front/`.
+  * [x] `vite-plugin-pwa` configurado com Service Worker (`autoUpdate`), Manifest completo e estratégias de cache offline (CacheFirst para fonts, StaleWhileRevalidate para API).
+  * [x] Design System premium no Tailwind CSS: paleta dark slate, glassmorphism, animações `slide-up`/`fade-in`, tipografia Inter + Plus Jakarta Sans.
+  * [x] `index.html` com meta tags PWA completas para iOS/Android (viewport-fit, apple-mobile-web-app-capable, theme-color).
+  * [x] Ícones PWA gerados e servidos em `/public/icons/`.
+  * [x] **Tipos TypeScript:** `auth.types.ts` com `LoginRequest`, `RegisterRequest`, `AuthResponse`, `JwtClaims`, `AuthUser`.
+  * [x] **Serviços:** `api.ts` (Axios + interceptors JWT/401-logout), `auth.service.ts` (login/register).
+  * [x] **Store Zustand (`authStore`):** persistência no localStorage, `TenantId` derivado exclusivamente do JWT (segurança SaaS), rehidratação automática ao recarregar.
+  * [x] **Componentes UI Atômicos:** `Button` (variantes + loading spinner), `Input` (ícones + toggle senha + aria), `Skeleton` e `SkeletonCard` (placeholders de carregamento).
+  * [x] **Layouts:** `AuthLayout` com fundo gradiente, orbs decorativos e card glassmorphism animado.
+  * [x] **Telas:** `LoginPage` e `RegisterPage` com validação client-side, toasts de sucesso/erro (react-hot-toast) e botão com estado de loading.
+  * [x] **Roteamento:** `react-router-dom` v7 com `ProtectedRoute` (guarda rotas autenticadas), redirect automático para `/login`.
+  * [x] **Dev server:** `http://localhost:5173` — iniciado em 363ms, zero erros de compilação.
+
 ---
 
 ## 📅 3. O que será desenvolvido (Roadmap Futuro)
 
 ### Backend (.NET Core / Minimal APIs)
-* [ ] Lógica de Sugestão Inteligente de horários alternativos (quando slot está ocupado).
-* [ ] Lógica de Lista de Espera: trigger de cancelamento → notificação proativa via WhatsApp.
-* [ ] Testes Unitários (`xUnit` + `Moq`) para `ScheduleService` (conflito de horários).
+* [x] ~~Lógica de Sugestão Inteligente de horários alternativos (quando slot está ocupado).~~ ✅ Concluído
+* [x] ~~Testes Unitários (`xUnit` + `Moq`) para `ScheduleService` (conflito de horários).~~ ✅ Concluído
+* [x] **Implementação de Folgas (Blockouts):**
+  * [x] O modelo `Schedule` foi atualizado com as propriedades `IsBlocked`, `BlockReason` e `IsAllDay`.
+  * [x] `CustomerId` e `ServiceId` agora são opcionais (`Guid?`) no banco (gerada nova migration `AddBlockoutToSchedule`).
+  * [x] `ScheduleRepository` ignora blockouts nas buscas de agendamentos normais (`!s.IsBlocked`), mas o detector de conflitos (`GetConflictingAsync`) continua cruzando tudo (agendamentos + folgas).
+  * [x] `ScheduleService` lida com bloqueios, retornando mensagens contextualizadas (ex: *"O profissional já possui uma folga/bloqueio neste horário..."*) durante o `CreateAsync`/`UpdateAsync`.
+  * [x] Integração com **Google Calendar** atualizada: exibe folgas com o título "🔒 Bloqueado", em cor diferente (Tomato/11) e usa eventos de dia-inteiro (All-Day) se aplicável.
+  * [x] Endpoints CRUD via `/api/v1/schedules/block` criados (GET, POST, PUT, DELETE).
+  * [x] **Novos testes (4 adicionados):** `CreateBlockoutAsync_WithValidData_ReturnsBlockoutAndEnqueuesSync`, `CreateBlockoutAsync_WhenConflictExists_ThrowsInvalidOperationException`, `UpdateBlockoutAsync_WithValidData_UpdatesBlockoutAndEnqueuesSync`, `UpdateBlockoutAsync_WhenTargetIsNotBlockout_ThrowsInvalidOperationException`.
+  * [x] **Total Geral: 97 testes — 97 aprovados, 0 falhas, 0 avisos.**
 
+---
+
+## 📅 3. O que será desenvolvido (Roadmap Futuro)
 
 ### Serviço Mensageria (Node.js + Baileys)
 * [ ] Setup do projeto Node.js e biblioteca Baileys.
@@ -119,7 +181,7 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
 * [ ] Endpoint para o .NET disparar o envio de mensagens para o WhatsApp.
 
 ### Frontend (PWA)
-* [ ] Setup do projeto Frontend (React/Vite) como Progressive Web App.
-* [ ] Telas de Autenticação (Login/Cadastro do Profissional).
+* [x] ~~Setup do projeto Frontend (React/Vite) como Progressive Web App.~~ ✅ Concluído
+* [x] ~~Telas de Autenticação (Login/Cadastro do Profissional).~~ ✅ Concluído
 * [ ] Dashboard/Painel principal para visualização e gestão de Agendamentos (estilo Google Calendar).
 * [ ] Telas de configurações do Tenant (horários, serviços, folgas).

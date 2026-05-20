@@ -30,6 +30,18 @@ public sealed class ScheduleConfiguration : IEntityTypeConfiguration<Schedule>
         builder.Property(s => s.GoogleCalendarEventId)
             .HasMaxLength(255);
 
+        // ── Propriedades Blockout ──────────────────────────────────────────────
+        builder.Property(s => s.IsBlocked)
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(s => s.BlockReason)
+            .HasMaxLength(500);
+
+        builder.Property(s => s.IsAllDay)
+            .HasDefaultValue(false)
+            .IsRequired();
+
         builder.Property(s => s.CreatedAt)
             .IsRequired();
 
@@ -42,6 +54,10 @@ public sealed class ScheduleConfiguration : IEntityTypeConfiguration<Schedule>
         builder.HasIndex(s => new { s.TenantId, s.ProfessionalId, s.StartDateTime, s.EndDateTime })
             .HasDatabaseName("ix_schedules_tenant_professional_datetime");
 
+        // Índice otimizado para buscar rapidamente folgas de um profissional
+        builder.HasIndex(s => new { s.TenantId, s.ProfessionalId, s.IsBlocked })
+            .HasDatabaseName("ix_schedules_blockouts");
+
         // ── Relacionamento com Tenant ──────────────────────────────────────────
         builder.HasOne(s => s.Tenant)
             .WithMany(t => t.Schedules)
@@ -52,6 +68,7 @@ public sealed class ScheduleConfiguration : IEntityTypeConfiguration<Schedule>
         builder.HasOne(s => s.Customer)
             .WithMany()
             .HasForeignKey(s => s.CustomerId)
+            .IsRequired(false) // Opcional para blockouts
             .OnDelete(DeleteBehavior.Restrict);
 
         // ── Relacionamento com Professional ────────────────────────────────────
@@ -64,6 +81,7 @@ public sealed class ScheduleConfiguration : IEntityTypeConfiguration<Schedule>
         builder.HasOne(s => s.Service)
             .WithMany(sv => sv.Schedules)
             .HasForeignKey(s => s.ServiceId)
+            .IsRequired(false) // Opcional para blockouts
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

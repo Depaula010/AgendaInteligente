@@ -18,7 +18,7 @@ public sealed class ScheduleRepository : IScheduleRepository
               .Include(s => s.Professional)
               .Include(s => s.Customer)
               .Include(s => s.Service)
-              .Where(s => s.StartDateTime >= from && s.StartDateTime < to)
+              .Where(s => !s.IsBlocked && s.StartDateTime >= from && s.StartDateTime < to)
               .OrderBy(s => s.StartDateTime)
               .ToListAsync(ct)
               .ContinueWith(t => (IReadOnlyList<Schedule>)t.Result, ct);
@@ -28,7 +28,19 @@ public sealed class ScheduleRepository : IScheduleRepository
         => _db.Schedules
               .Include(s => s.Customer)
               .Include(s => s.Service)
-              .Where(s => s.ProfessionalId == professionalId
+              .Where(s => !s.IsBlocked
+                       && s.ProfessionalId == professionalId
+                       && s.StartDateTime >= from
+                       && s.StartDateTime < to)
+              .OrderBy(s => s.StartDateTime)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<Schedule>)t.Result, ct);
+
+    public Task<IReadOnlyList<Schedule>> GetBlockoutsByProfessionalAsync(
+        Guid professionalId, DateTime from, DateTime to, CancellationToken ct = default)
+        => _db.Schedules
+              .Where(s => s.IsBlocked
+                       && s.ProfessionalId == professionalId
                        && s.StartDateTime >= from
                        && s.StartDateTime < to)
               .OrderBy(s => s.StartDateTime)

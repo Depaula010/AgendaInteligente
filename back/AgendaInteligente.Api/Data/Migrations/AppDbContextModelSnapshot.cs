@@ -144,11 +144,16 @@ namespace AgendaInteligente.Api.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("BlockReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("block_reason");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<Guid>("CustomerId")
+                    b.Property<Guid?>("CustomerId")
                         .HasColumnType("uuid")
                         .HasColumnName("customer_id");
 
@@ -160,6 +165,18 @@ namespace AgendaInteligente.Api.Data.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("google_calendar_event_id");
+
+                    b.Property<bool>("IsAllDay")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_all_day");
+
+                    b.Property<bool>("IsBlocked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_blocked");
 
                     b.Property<bool>("IsRecurring")
                         .HasColumnType("boolean")
@@ -183,7 +200,7 @@ namespace AgendaInteligente.Api.Data.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("recurrence_rule");
 
-                    b.Property<Guid>("ServiceId")
+                    b.Property<Guid?>("ServiceId")
                         .HasColumnType("uuid")
                         .HasColumnName("service_id");
 
@@ -214,6 +231,9 @@ namespace AgendaInteligente.Api.Data.Migrations
 
                     b.HasIndex("ServiceId")
                         .HasDatabaseName("ix_schedules_service_id");
+
+                    b.HasIndex("TenantId", "ProfessionalId", "IsBlocked")
+                        .HasDatabaseName("ix_schedules_blockouts");
 
                     b.HasIndex("TenantId", "ProfessionalId", "StartDateTime", "EndDateTime")
                         .HasDatabaseName("ix_schedules_tenant_professional_datetime");
@@ -486,7 +506,6 @@ namespace AgendaInteligente.Api.Data.Migrations
                         .WithMany()
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("fk_schedules_customers_customer_id");
 
                     b.HasOne("AgendaInteligente.Api.Domain.Entities.Professional", "Professional")
@@ -500,7 +519,6 @@ namespace AgendaInteligente.Api.Data.Migrations
                         .WithMany("Schedules")
                         .HasForeignKey("ServiceId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("fk_schedules_services_service_id");
 
                     b.HasOne("AgendaInteligente.Api.Domain.Entities.Tenant", "Tenant")

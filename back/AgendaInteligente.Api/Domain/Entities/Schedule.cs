@@ -22,14 +22,14 @@ public sealed class Schedule : IMustHaveTenant
     public Tenant Tenant { get; set; } = null!;
 
     // ── Relacionamentos ────────────────────────────────────────────────────────
-    public Guid CustomerId { get; set; }
-    public Customer Customer { get; set; } = null!;
+    public Guid? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
 
     public Guid ProfessionalId { get; set; }
     public Professional Professional { get; set; } = null!;
 
-    public Guid ServiceId { get; set; }
-    public Service Service { get; set; } = null!;
+    public Guid? ServiceId { get; set; }
+    public Service? Service { get; set; }
 
     // ── Dados do Agendamento ───────────────────────────────────────────────────
     /// <summary>Data e hora de início do agendamento (sempre em UTC).</summary>
@@ -45,6 +45,16 @@ public sealed class Schedule : IMustHaveTenant
 
     /// <summary>Observações opcionais do cliente ou do profissional.</summary>
     public string? Notes { get; set; }
+
+    // ── Blockout (Folgas) ──────────────────────────────────────────────────────
+    /// <summary>Indica se este registro é um bloqueio de agenda (folga).</summary>
+    public bool IsBlocked { get; set; } = false;
+
+    /// <summary>Motivo da folga (ex: Férias, Feriado). Usado apenas se IsBlocked = true.</summary>
+    public string? BlockReason { get; set; }
+
+    /// <summary>Se true, o bloqueio/agendamento dura o dia todo (ignora a hora no calendário).</summary>
+    public bool IsAllDay { get; set; } = false;
 
     // ── Recorrência ────────────────────────────────────────────────────────────
     /// <summary>Indica se este agendamento faz parte de uma série recorrente.</summary>

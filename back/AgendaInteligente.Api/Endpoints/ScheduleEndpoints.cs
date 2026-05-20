@@ -1,5 +1,6 @@
 using AgendaInteligente.Api.Contracts.Requests;
 using AgendaInteligente.Api.Contracts.Responses;
+using AgendaInteligente.Api.Domain.Exceptions;
 using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -27,7 +28,7 @@ public static class ScheduleEndpoints
                 : await service.GetByDateRangeAsync(fromDate, toDate, ct);
 
             var response = schedules.Select(s => new ScheduleResponse(
-                s.Id, s.CustomerId, s.ProfessionalId, s.ServiceId,
+                s.Id, s.CustomerId!.Value, s.ProfessionalId, s.ServiceId!.Value,
                 s.StartDateTime, s.EndDateTime, s.Status, s.Notes, s.CreatedAt));
 
             return Results.Ok(response);
@@ -40,7 +41,7 @@ public static class ScheduleEndpoints
                 return Results.NotFound();
 
             var response = new ScheduleResponse(
-                schedule.Id, schedule.CustomerId, schedule.ProfessionalId, schedule.ServiceId,
+                schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
                 schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
 
             return Results.Ok(response);
@@ -55,14 +56,23 @@ public static class ScheduleEndpoints
                     request.StartDateTime, request.Notes, ct);
 
                 var response = new ScheduleResponse(
-                    schedule.Id, schedule.CustomerId, schedule.ProfessionalId, schedule.ServiceId,
+                    schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
                     schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
 
                 return Results.Created($"/api/v1/schedules/{schedule.Id}", response);
             }
-            catch (InvalidOperationException ex)
+            catch (ScheduleConflictException ex)
             {
-                return Results.Conflict(new { error = ex.Message });
+                // HTTP 409 com lista de alternativas tipada — expõe SuggestedAlternatives ao cliente/bot
+                return Results.Conflict(new
+                {
+                    error = ex.Message,
+                    suggestedAlternatives = ex.SuggestedAlternatives
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
             }
         });
 
@@ -74,7 +84,7 @@ public static class ScheduleEndpoints
                     id, request.StartDateTime, request.Notes, ct);
 
                 var response = new ScheduleResponse(
-                    schedule.Id, schedule.CustomerId, schedule.ProfessionalId, schedule.ServiceId,
+                    schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
                     schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
 
                 return Results.Ok(response);
@@ -100,5 +110,81 @@ public static class ScheduleEndpoints
             var success = await service.DeleteAsync(id, ct);
             return success ? Results.NoContent() : Results.NotFound();
         });
+
+        // ── Blockouts (Folgas) ─────────────────────────────────────────────────
+        var blockGroup = app.MapGroup("/api/v1/schedules/block")
+            .WithTags("Schedules (Blockouts)")
+            .RequireAuthorization();
+
+        blockGroup.MapGet("/", async (
+            [FromQuery] DateTime? from,
+            [FromQuery] DateTime? to,
+            [FromQuery] Guid professionalId,
+            IScheduleService service, CancellationToken ct) =>
+        {
+            var fromDate = from ?? DateTime.UtcNow.Date;
+            var toDate = to ?? fromDate.AddDays(7);
+
+            var blockouts = await service.GetBlockoutsByProfessionalAsync(professionalId, fromDate, toDate, ct);
+            var response = blockouts.Select(b => new BlockoutResponse(
+                b.Id, b.ProfessionalId, b.StartDateTime, b.EndDateTime,
+                b.BlockReason, b.IsAllDay, b.CreatedAt));
+
+            return Results.Ok(response);
+        });
+
+        blockGroup.MapPost("/", async ([FromBody] CreateBlockoutRequest request, IScheduleService service, CancellationToken ct) =>
+        {
+            try
+            {
+                var blockout = await service.CreateBlockoutAsync(
+                    request.ProfessionalId, request.StartDateTime, request.EndDateTime,
+                    request.BlockReason, request.IsAllDay, ct);
+
+                var response = new BlockoutResponse(
+                    blockout.Id, blockout.ProfessionalId, blockout.StartDateTime, blockout.EndDateTime,
+                    blockout.BlockReason, blockout.IsAllDay, blockout.CreatedAt);
+
+                return Results.Created($"/api/v1/schedules/block/{blockout.Id}", response);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        }).RequireAuthorization("RequireOwnerRole");
+
+        blockGroup.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateBlockoutRequest request, IScheduleService service, CancellationToken ct) =>
+        {
+            try
+            {
+                var blockout = await service.UpdateBlockoutAsync(
+                    id, request.StartDateTime, request.EndDateTime,
+                    request.BlockReason, request.IsAllDay, ct);
+
+                var response = new BlockoutResponse(
+                    blockout.Id, blockout.ProfessionalId, blockout.StartDateTime, blockout.EndDateTime,
+                    blockout.BlockReason, blockout.IsAllDay, blockout.CreatedAt);
+
+                return Results.Ok(response);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        }).RequireAuthorization("RequireOwnerRole");
+
+        blockGroup.MapDelete("/{id:guid}", async (Guid id, IScheduleService service, CancellationToken ct) =>
+        {
+            var success = await service.DeleteAsync(id, ct);
+            return success ? Results.NoContent() : Results.NotFound();
+        }).RequireAuthorization("RequireOwnerRole");
     }
 }

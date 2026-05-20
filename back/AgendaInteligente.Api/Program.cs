@@ -22,6 +22,18 @@ builder.Services.AddHttpContextAccessor();
 // Scoped: cada requisição HTTP resolve o seu próprio TenantId
 builder.Services.AddScoped<ITenantProvider, HttpContextTenantProvider>();
 
+// ── Redis Distributed Cache ────────────────────────────────────────────────────
+var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options => options.Configuration = redisConnection);
+}
+else
+{
+    // Fallback em memória para ambiente de testes/CI sem Redis
+    builder.Services.AddDistributedMemoryCache();
+}
+
 // ── Database (Entity Framework Core + PostgreSQL) ──────────────────────────────
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException(
@@ -69,6 +81,18 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Webhooks
 builder.Services.AddScoped<IWebhookService, WebhookService>();
+
+// Conversation History (Redis)
+builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();
+
+// WhatsApp Send (canal único de saída p/ bot Node.js)
+builder.Services.Configure<WhatsAppBotOptions>(builder.Configuration.GetSection(WhatsAppBotOptions.SectionName));
+builder.Services.AddHttpClient<IWhatsAppSendService, WhatsAppSendService>();
+
+// Waitlist
+builder.Services.AddScoped<IWaitlistRepository, WaitlistRepository>();
+builder.Services.AddScoped<IWaitlistService, WaitlistService>();
+builder.Services.AddScoped<IWhatsAppNotificationService, WhatsAppNotificationService>();
 
 // AI (Gemini)
 builder.Services.Configure<GeminiOptions>(builder.Configuration.GetSection(GeminiOptions.SectionName));

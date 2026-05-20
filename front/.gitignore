@@ -1,0 +1,52 @@
+# ── Dependências ─────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Build / Output ────────────────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
+.vite/
+.cache/
+*.tsbuildinfo
+
+# ── Variáveis de Ambiente ─────────────────────────────────────────────────────
+# Nunca commitar segredos. Use .env.example como template.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Editores / IDEs ───────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Sistema Operacional ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── PWA / Service Worker (gerados em build) ───────────────────────────────────
+public/sw.js
+public/workbox-*.js
+dev-dist/
+
+# ── Testes ────────────────────────────────────────────────────────────────────
+coverage/
