@@ -32,4 +32,10 @@ public interface IScheduleRepository
     /// Persiste o <c>GoogleCalendarEventId</c> no banco após a sincronização bem-sucedida.
     /// </summary>
     Task<bool> UpdateGoogleEventIdAsync(Guid scheduleId, string googleEventId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retorna os agendamentos futuros pendentes de um cliente, ordenados por data de início.
+    /// Usado pelo bot para localizar o próximo agendamento quando o cliente solicita cancelamento.
+    /// </summary>
+    Task<IReadOnlyList<Schedule>> GetUpcomingByCustomerIdAsync(Guid customerId, CancellationToken ct = default);
 }

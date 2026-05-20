@@ -101,6 +101,17 @@ public sealed class ScheduleRepository : IScheduleRepository
         return rows > 0;
     }
 
+    public Task<IReadOnlyList<Schedule>> GetUpcomingByCustomerIdAsync(
+        Guid customerId, CancellationToken ct = default)
+        => _db.Schedules
+              .Where(s => s.CustomerId == customerId
+                       && s.StartDateTime >= DateTime.UtcNow
+                       && s.Status == ScheduleStatus.Pending
+                       && !s.IsBlocked)
+              .OrderBy(s => s.StartDateTime)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<Schedule>)t.Result, ct);
+
     public async Task<bool> UpdateGoogleEventIdAsync(
         Guid scheduleId, string googleEventId, CancellationToken ct = default)
     {

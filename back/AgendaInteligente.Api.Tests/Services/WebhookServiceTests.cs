@@ -10,16 +10,18 @@ namespace AgendaInteligente.Api.Tests.Services;
 
 public sealed class WebhookServiceTests
 {
-    private readonly Mock<IConversationHistoryService> _historyMock;
-    private readonly Mock<IAiOrchestratorService> _aiMock;
-    private readonly Mock<IWhatsAppSendService> _sendMock;
-    private readonly WebhookService _service;
+    private readonly Mock<IConversationHistoryService>  _historyMock;
+    private readonly Mock<IAiOrchestratorService>       _aiMock;
+    private readonly Mock<IBotIntentDispatcherService>  _dispatcherMock;
+    private readonly Mock<IWhatsAppSendService>         _sendMock;
+    private readonly WebhookService                     _service;
 
     public WebhookServiceTests()
     {
-        _historyMock = new Mock<IConversationHistoryService>();
-        _aiMock      = new Mock<IAiOrchestratorService>();
-        _sendMock    = new Mock<IWhatsAppSendService>();
+        _historyMock    = new Mock<IConversationHistoryService>();
+        _aiMock         = new Mock<IAiOrchestratorService>();
+        _dispatcherMock = new Mock<IBotIntentDispatcherService>();
+        _sendMock       = new Mock<IWhatsAppSendService>();
 
         // Defaults: mensagem nova (não duplicada), histórico vazio
         _historyMock.Setup(h => h.IsMessageDuplicateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -32,17 +34,22 @@ public sealed class WebhookServiceTests
         _aiMock.Setup(ai => ai.ProcessUserMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<List<MessageHistory>>()))
             .ReturnsAsync(new GeminiIntentResponse { Intent = "general", ReplyMessage = "Posso ajudar com algo?" });
 
+        // Dispatcher por padrão passa o reply da IA inalterado
+        _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Posso ajudar com algo?");
+
         _sendMock.Setup(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         _service = new WebhookService(
             _historyMock.Object,
             _aiMock.Object,
+            _dispatcherMock.Object,
             _sendMock.Object,
             new NullLogger<WebhookService>());
     }
 
-    // ── Guard clauses (comportamento já existente) ───────────────────────────────
+    // ── Guard clauses ────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task ProcessWhatsAppMessageAsync_WithNullRequest_ThrowsArgumentNullException()
@@ -95,15 +102,13 @@ public sealed class WebhookServiceTests
         Assert.Contains("TenantId", ex.ParamName);
     }
 
-    // ── Loop completo — novos cenários ───────────────────────────────────────────
+    // ── Loop completo ────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task ProcessWhatsAppMessageAsync_WithValidRequest_CallsAiOrchestrator()
     {
-        // Act
         await _service.ProcessWhatsAppMessageAsync(ValidRequest());
 
-        // Assert
         _aiMock.Verify(ai => ai.ProcessUserMessageAsync(
             It.IsAny<Guid>(),
             "Olá, quero agendar",
@@ -111,85 +116,94 @@ public sealed class WebhookServiceTests
     }
 
     [Fact]
-    public async Task ProcessWhatsAppMessageAsync_WithValidRequest_SavesHistoryWithUserAndModelMessages()
+    public async Task ProcessWhatsAppMessageAsync_WithValidRequest_CallsDispatcherWithAiResponse()
     {
-        // Arrange
+        GeminiIntentResponse? passedResponse = null;
+        _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<GeminiIntentResponse, Guid, string, CancellationToken>((r, _, _, _) => passedResponse = r)
+            .ReturnsAsync("Posso ajudar com algo?");
+
+        await _service.ProcessWhatsAppMessageAsync(ValidRequest());
+
+        Assert.NotNull(passedResponse);
+        Assert.Equal("general", passedResponse!.Intent);
+    }
+
+    [Fact]
+    public async Task ProcessWhatsAppMessageAsync_SendsDispatcherReply_NotDirectAiReply()
+    {
+        // Dispatcher retorna mensagem diferente da IA (ex: agendamento confirmado)
+        _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Agendamento criado com sucesso!");
+
+        await _service.ProcessWhatsAppMessageAsync(ValidRequest());
+
+        _sendMock.Verify(s => s.SendTextMessageAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<string>(),
+            "Agendamento criado com sucesso!",
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessWhatsAppMessageAsync_WithValidRequest_SavesHistoryWithDispatcherReply()
+    {
         var request = ValidRequest();
+        _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Posso ajudar com algo?");
+
         List<MessageHistory>? savedHistory = null;
         _historyMock.Setup(h => h.SaveHistoryAsync(request.TenantId, request.SenderPhone, It.IsAny<List<MessageHistory>>(), It.IsAny<CancellationToken>()))
             .Callback<Guid, string, List<MessageHistory>, CancellationToken>((_, _, history, _) => savedHistory = history)
             .Returns(Task.CompletedTask);
 
-        // Act
         await _service.ProcessWhatsAppMessageAsync(request);
 
-        // Assert
         Assert.NotNull(savedHistory);
         Assert.Equal(2, savedHistory!.Count);
         Assert.Equal("user",  savedHistory[0].Role);
         Assert.Equal("model", savedHistory[1].Role);
-        Assert.Equal(request.MessageText,         savedHistory[0].Content);
-        Assert.Equal("Posso ajudar com algo?",    savedHistory[1].Content);
-    }
-
-    [Fact]
-    public async Task ProcessWhatsAppMessageAsync_WithValidRequest_SendsAiReplyToClient()
-    {
-        // Act
-        await _service.ProcessWhatsAppMessageAsync(ValidRequest());
-
-        // Assert
-        _sendMock.Verify(s => s.SendTextMessageAsync(
-            It.IsAny<Guid>(),
-            "5511999999999",
-            "Posso ajudar com algo?",
-            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(request.MessageText,      savedHistory[0].Content);
+        Assert.Equal("Posso ajudar com algo?", savedHistory[1].Content);
     }
 
     [Fact]
     public async Task ProcessWhatsAppMessageAsync_WhenDuplicateMessage_SkipsProcessingEntirely()
     {
-        // Arrange
         _historyMock.Setup(h => h.IsMessageDuplicateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        // Act
         await _service.ProcessWhatsAppMessageAsync(ValidRequest());
 
-        // Assert — IA e envio NÃO devem ser chamados
         _aiMock.Verify(ai => ai.ProcessUserMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<List<MessageHistory>>()), Times.Never);
+        _dispatcherMock.Verify(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         _sendMock.Verify(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task ProcessWhatsAppMessageAsync_WhenAiFails_DoesNotSendReply()
+    public async Task ProcessWhatsAppMessageAsync_WhenAiFails_DoesNotCallDispatcherOrSendReply()
     {
-        // Arrange — Gemini falhou (ex: API Key inválida)
         _aiMock.Setup(ai => ai.ProcessUserMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<List<MessageHistory>>()))
             .ThrowsAsync(new Exception("Gemini API error 429"));
 
-        // Act — não deve propagar exceção
         await _service.ProcessWhatsAppMessageAsync(ValidRequest());
 
-        // Assert
+        _dispatcherMock.Verify(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         _sendMock.Verify(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
     public async Task ProcessWhatsAppMessageAsync_WhenSendFails_DoesNotThrow()
     {
-        // Arrange — bot Node.js indisponível
         _sendMock.Setup(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        // Act & Assert — resiliência: não deve lançar exceção
         await _service.ProcessWhatsAppMessageAsync(ValidRequest());
     }
 
     [Fact]
     public async Task ProcessWhatsAppMessageAsync_PreviousHistoryIsPassedToAiOrchestrator()
     {
-        // Arrange — simula conversa com histórico existente
         var existingHistory = new List<MessageHistory>
         {
             new() { Role = "user",  Content = "Oi" },
@@ -203,10 +217,8 @@ public sealed class WebhookServiceTests
             .Callback<Guid, string, List<MessageHistory>>((_, _, history) => passedHistory = history)
             .ReturnsAsync(new GeminiIntentResponse { Intent = "general", ReplyMessage = "Para quando?" });
 
-        // Act
         await _service.ProcessWhatsAppMessageAsync(ValidRequest());
 
-        // Assert — histórico carregado do Redis deve chegar à IA
         Assert.NotNull(passedHistory);
         Assert.Equal(2, passedHistory!.Count);
         Assert.Equal("Oi", passedHistory[0].Content);

@@ -68,6 +68,9 @@ builder.Services.AddScoped<IProfessionalService, ProfessionalService>();
 builder.Services.AddScoped<IServiceCatalogRepository, ServiceCatalogRepository>();
 builder.Services.AddScoped<IServiceCatalogService, ServiceCatalogService>();
 
+// Customer
+builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
+
 // Schedule
 builder.Services.AddScoped<IScheduleRepository, ScheduleRepository>();
 builder.Services.AddScoped<IScheduleService, ScheduleService>();
@@ -81,6 +84,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Webhooks
 builder.Services.AddScoped<IWebhookService, WebhookService>();
+builder.Services.AddScoped<IBotIntentDispatcherService, BotIntentDispatcherService>();
 
 // Conversation History (Redis)
 builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();

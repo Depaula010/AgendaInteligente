@@ -9,19 +9,22 @@ public sealed class WebhookService : IWebhookService
 {
     private readonly IConversationHistoryService _conversationHistory;
     private readonly IAiOrchestratorService _aiOrchestrator;
+    private readonly IBotIntentDispatcherService _intentDispatcher;
     private readonly IWhatsAppSendService _whatsAppSend;
     private readonly ILogger<WebhookService> _logger;
 
     public WebhookService(
         IConversationHistoryService conversationHistory,
         IAiOrchestratorService aiOrchestrator,
+        IBotIntentDispatcherService intentDispatcher,
         IWhatsAppSendService whatsAppSend,
         ILogger<WebhookService> logger)
     {
         _conversationHistory = conversationHistory;
-        _aiOrchestrator = aiOrchestrator;
-        _whatsAppSend = whatsAppSend;
-        _logger = logger;
+        _aiOrchestrator      = aiOrchestrator;
+        _intentDispatcher    = intentDispatcher;
+        _whatsAppSend        = whatsAppSend;
+        _logger              = logger;
     }
 
     public async Task ProcessWhatsAppMessageAsync(WebhookMessageRequest request, CancellationToken ct = default)
@@ -57,15 +60,13 @@ public sealed class WebhookService : IWebhookService
         var history = await _conversationHistory.GetHistoryAsync(request.TenantId, request.SenderPhone, ct);
 
         // 3. Processamento via IA (sempre via AiOrchestratorService, nunca GeminiService direto)
-        string replyMessage;
+        GeminiIntentResponse aiResponse;
         try
         {
-            var aiResponse = await _aiOrchestrator.ProcessUserMessageAsync(
+            aiResponse = await _aiOrchestrator.ProcessUserMessageAsync(
                 request.TenantId,
                 request.MessageText,
                 history);
-
-            replyMessage = aiResponse.ReplyMessage;
 
             _logger.LogInformation(
                 "IA processou mensagem. TenantId={TenantId}, Intent={Intent}",
@@ -79,7 +80,11 @@ public sealed class WebhookService : IWebhookService
             return;
         }
 
-        // 4. Cria lista atualizada (histórico anterior + par user/model do turno atual) e persiste no Redis
+        // 4. Dispatch de intenção — age sobre schedule/cancel ou passa a reply da IA inalterada
+        var replyMessage = await _intentDispatcher.DispatchAsync(
+            aiResponse, request.TenantId, request.SenderPhone, ct);
+
+        // 5. Cria lista atualizada (histórico anterior + par user/model do turno atual) e persiste no Redis
         var updatedHistory = new List<MessageHistory>(history)
         {
             new() { Role = "user",  Content = request.MessageText },
@@ -87,7 +92,7 @@ public sealed class WebhookService : IWebhookService
         };
         await _conversationHistory.SaveHistoryAsync(request.TenantId, request.SenderPhone, updatedHistory, ct);
 
-        // 5. Envia resposta ao cliente via bot Node.js (canal único de saída)
+        // 6. Envia resposta ao cliente via bot Node.js (canal único de saída)
         await _whatsAppSend.SendTextMessageAsync(request.TenantId, request.SenderPhone, replyMessage, ct);
     }
 }
