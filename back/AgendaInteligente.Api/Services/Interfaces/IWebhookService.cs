@@ -4,5 +4,5 @@ namespace AgendaInteligente.Api.Services.Interfaces;
 
 public interface IWebhookService
 {
-    Task ProcessWhatsAppMessageAsync(WebhookMessageRequest request, CancellationToken ct = default);
+    Task<string> ProcessWhatsAppMessageAsync(Guid tenantId, BotWebhookRequest request, CancellationToken ct = default);
 }

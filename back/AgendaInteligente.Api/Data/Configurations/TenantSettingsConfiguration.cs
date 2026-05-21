@@ -40,6 +40,8 @@ public sealed class TenantSettingsConfiguration : IEntityTypeConfiguration<Tenan
         builder.Property(ts => ts.WhatsAppPhoneNumber)
             .HasMaxLength(20);
 
+        builder.Property(ts => ts.BotSessionId);
+
         builder.Property(ts => ts.ConflictMessageTemplate)
             .HasColumnType("text");
 

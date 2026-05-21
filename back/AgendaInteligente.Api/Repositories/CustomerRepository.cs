@@ -14,6 +14,10 @@ public sealed class CustomerRepository : ICustomerRepository
     public Task<Customer?> GetByPhoneAsync(string phone, CancellationToken ct = default)
         => _db.Customers.FirstOrDefaultAsync(c => c.PhoneNumber == phone, ct);
 
+    public Task<Customer?> GetByPhoneAndTenantAsync(string phone, Guid tenantId, CancellationToken ct = default)
+        => _db.Customers.IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(c => c.PhoneNumber == phone && c.TenantId == tenantId, ct);
+
     public async Task<Customer> CreateAsync(Customer customer, CancellationToken ct = default)
     {
         _db.Customers.Add(customer);

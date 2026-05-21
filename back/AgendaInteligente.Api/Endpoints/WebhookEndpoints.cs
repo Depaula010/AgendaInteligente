@@ -1,10 +1,7 @@
 using AgendaInteligente.Api.Contracts.Requests.Webhook;
 using AgendaInteligente.Api.Filters;
 using AgendaInteligente.Api.Services.Interfaces;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
 namespace AgendaInteligente.Api.Endpoints;
 
@@ -16,24 +13,28 @@ public static class WebhookEndpoints
             .WithTags("Webhooks")
             .AddEndpointFilter<ApiKeyAuthFilter>();
 
-        group.MapPost("/whatsapp", ProcessWhatsAppWebhookAsync)
+        group.MapPost("/whatsapp/{tenantId:guid}", ProcessWhatsAppWebhookAsync)
             .WithName("ProcessWhatsAppWebhook")
-            .WithSummary("Recebe mensagens do WhatsApp via Baileys Node.js")
-            .WithDescription("Endpoint protegido por X-Api-Key que processa as mensagens recebidas no bot. Executa o loop completo: debounce → histórico Redis → Gemini → resposta ao cliente.")
-            .Produces(StatusCodes.Status200OK)
+            .WithSummary("Recebe mensagens do WhatsApp via bot Node.js")
+            .WithDescription(
+                "Endpoint protegido por X-Api-Key. Recebe { texto, numero_remetente } do bot, " +
+                "processa via IA e retorna { resposta } para o bot encaminhar ao usuário. " +
+                "O tenantId é embutido na URL de webhook configurada durante a criação da sessão.")
+            .Produces<object>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
     }
 
     private static async Task<IResult> ProcessWhatsAppWebhookAsync(
-        [FromBody] WebhookMessageRequest request,
+        [FromRoute] Guid tenantId,
+        [FromBody] BotWebhookRequest request,
         [FromServices] IWebhookService webhookService,
         CancellationToken ct)
     {
         try
         {
-            await webhookService.ProcessWhatsAppMessageAsync(request, ct);
-            return Results.Ok(new { message = "Webhook recebido e processado com sucesso." });
+            var reply = await webhookService.ProcessWhatsAppMessageAsync(tenantId, request, ct);
+            return Results.Ok(new { resposta = reply });
         }
         catch (ArgumentException ex)
         {

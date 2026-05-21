@@ -93,9 +93,10 @@ builder.Services.AddScoped<IBotIntentDispatcherService, BotIntentDispatcherServi
 // Conversation History (Redis)
 builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();
 
-// WhatsApp Send (canal único de saída p/ bot Node.js)
+// WhatsApp Send + Session (bot Node.js)
 builder.Services.Configure<WhatsAppBotOptions>(builder.Configuration.GetSection(WhatsAppBotOptions.SectionName));
-builder.Services.AddHttpClient<IWhatsAppSendService, WhatsAppSendService>();
+builder.Services.AddScoped<IWhatsAppSendService, WhatsAppSendService>();
+builder.Services.AddScoped<IWhatsAppSessionService, WhatsAppSessionService>();
 
 // Waitlist
 builder.Services.AddScoped<IWaitlistRepository, WaitlistRepository>();

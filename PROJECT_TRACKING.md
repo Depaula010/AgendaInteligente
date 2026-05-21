@@ -147,6 +147,20 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
   * [x] **B23 — Onboarding de Tenant via API:** `POST /api/v1/onboarding` público (`AllowAnonymous`). Cria `Tenant` + `Professional` (Owner, bcrypt) + `TenantSettings` (defaults) atomicamente via `IOnboardingRepository.CreateOnboardingAsync` — único `SaveChangesAsync` = transação implícita EF Core. Sem JWT no contexto: `CurrentTenantId` null → Global Query Filter desativado, auto-fill de TenantId não roda → `TenantId` definido explicitamente nas entidades. 201 Created / 409 Conflict (slug duplicado) / 400 Bad Request.
   * [x] **Total de testes B18–B23 (55 adicionados):** `BotIntentDispatcherServiceTests` (17), `WebhookServiceTests` (+8), `WhatsAppEndpointsTests` (7), `ConversationHistoryServiceTests` (+1 SlidingExpiration), `OnboardingServiceTests` (14). **Total Geral: 152 testes — 152 aprovados, 0 falhas, 0 warnings.**
 
+* [x] **B24 + Integração bot↔backend (revisão crítica e correção completa):**
+  * [x] **Revisão bot Node.js (Baileys):** identificado que o bot envia `{ texto, numero_remetente }` e espera `{ resposta: "..." }` de volta — mas o backend retornava `{ message: "..." }` e enviava a resposta via `IWhatsAppSendService` (URL errada, payload errado, sem `X-Api-Key`). O loop de resposta estava quebrado desde B17.
+  * [x] **Novo DTO `BotWebhookRequest`:** campos `Texto` e `NumeroRemetente` espelham o payload real do bot.
+  * [x] **`MessageId` gerado pelo backend:** `SHA256(tenantId:phone:text:UTC-minute)` — deduplicação sem depender de um ID externo que o bot não envia.
+  * [x] **`IWebhookService` → `Task<string>`:** serviço agora retorna a resposta textual. `IWhatsAppSendService` removido do caminho do webhook — o bot recebe `{ resposta }` e encaminha ao usuário (evita double-send).
+  * [x] **`WebhookEndpoints` refatorado:** rota `POST /api/v1/webhooks/whatsapp/{tenantId}` — TenantId embutido na URL de webhook configurada no bot. Retorna `{ resposta: reply }`.
+  * [x] **`WhatsAppSendService` corrigido:** URL: `{BotUrl}/api/v1/sessions/{sessionId}/send-message`, payload: `{ numero, mensagem }`, cabeçalho `X-Api-Key: {BotApiKey}`. Lookup do `BotSessionId` via `ITenantSettingsRepository.GetByTenantIdAsync` (ignora filtro global — correto para envios proativos). Migrado de `AddHttpClient<T,T>` (Transient) para `AddScoped` + `IHttpClientFactory` para permitir injeção do repositório Scoped.
+  * [x] **`TenantSettings.BotSessionId (Guid?)`:** armazena o UUID da sessão do bot. Migration `AddBotSessionIdToTenantSettings` gerada. `ITenantSettingsRepository.GetByTenantIdAsync` adicionado.
+  * [x] **`WhatsAppBotOptions` expandido:** `BotApiKey`, `WebhookBackendUrl`, `WebhookSignatureKey` adicionados.
+  * [x] **B24 — `POST /api/v1/whatsapp/session`:** cria sessão no bot com `{ session_name, webhook_url, webhook_signature_key }`, salva `BotSessionId` no banco, dispara `connect` para gerar QR. Se sessão já existe, apenas reconecta.
+  * [x] **B24 — `GET /api/v1/whatsapp/session/status`:** consulta `GET /api/v1/sessions/{id}` no bot; se não conectado, tenta `GET /api/v1/sessions/{id}/qr` para obter o QR code em base64. Status especial `not_configured` quando `BotSessionId` é null.
+  * [x] **Testes:** `WebhookServiceTests` reescrito para nova assinatura (return `string`, sem `_sendMock`, sem `MessageId` no request). `WhatsAppSessionServiceTests` (7 testes: guard clauses BotUrl, TenantId, settings + GetStatus not_configured).
+  * [x] **Total: 155 testes — 155 aprovados, 0 falhas, 0 warnings.**
+
 * [x] **Setup Frontend PWA (React + Vite) e Telas de Autenticação:**
   * [x] Projeto React 19 + TypeScript inicializado com Vite 6 na pasta `front/`.
   * [x] `vite-plugin-pwa` configurado com Service Worker (`autoUpdate`), Manifest completo e estratégias de cache offline (CacheFirst para fonts, StaleWhileRevalidate para API).

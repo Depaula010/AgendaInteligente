@@ -110,9 +110,8 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             return aiResponse.ReplyMessage;
         }
 
-        // Find-or-create customer pelo telefone
-        // Customer não implementa IMustHaveTenant: TenantId deve ser definido explicitamente
-        var customer = await _customerRepo.GetByPhoneAsync(senderPhone, ct)
+        // Find-or-create customer pelo telefone (IgnoreQueryFilters — sem JWT no webhook path)
+        var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct)
             ?? await _customerRepo.CreateAsync(new Customer
             {
                 Name        = senderPhone,
@@ -153,7 +152,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
 
     private async Task<string> HandleCancelAsync(Guid tenantId, string senderPhone, CancellationToken ct)
     {
-        var customer = await _customerRepo.GetByPhoneAsync(senderPhone, ct);
+        var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct);
         if (customer is null)
             return "Não encontrei nenhum agendamento pendente para você.";
 

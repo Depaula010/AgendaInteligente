@@ -1,4 +1,5 @@
 using AgendaInteligente.Api.Configuration;
+using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,18 +9,21 @@ namespace AgendaInteligente.Api.Services;
 
 public sealed class WhatsAppSendService : IWhatsAppSendService
 {
-    private readonly HttpClient _httpClient;
-    private readonly WhatsAppBotOptions _options;
+    private readonly IHttpClientFactory           _httpClientFactory;
+    private readonly WhatsAppBotOptions           _options;
+    private readonly ITenantSettingsRepository    _settingsRepo;
     private readonly ILogger<WhatsAppSendService> _logger;
 
     public WhatsAppSendService(
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         IOptions<WhatsAppBotOptions> options,
+        ITenantSettingsRepository settingsRepo,
         ILogger<WhatsAppSendService> logger)
     {
-        _httpClient = httpClient;
-        _options = options.Value;
-        _logger = logger;
+        _httpClientFactory = httpClientFactory;
+        _options           = options.Value;
+        _settingsRepo      = settingsRepo;
+        _logger            = logger;
     }
 
     public async Task<bool> SendTextMessageAsync(Guid tenantId, string phone, string message, CancellationToken ct = default)
@@ -32,11 +36,22 @@ public sealed class WhatsAppSendService : IWhatsAppSendService
             return true;
         }
 
+        var settings = await _settingsRepo.GetByTenantIdAsync(tenantId, ct);
+        if (settings?.BotSessionId is null)
+        {
+            _logger.LogWarning(
+                "BotSessionId não configurado para o tenant. TenantId={TenantId}", tenantId);
+            return false;
+        }
+
         try
         {
-            var payload = new { tenantId, phone, message };
-            var response = await _httpClient.PostAsJsonAsync(
-                $"{_options.BotUrl}/api/v1/whatsapp/send",
+            var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.Add("X-Api-Key", _options.BotApiKey);
+
+            var payload  = new { numero = phone, mensagem = message };
+            var response = await httpClient.PostAsJsonAsync(
+                $"{_options.BotUrl}/api/v1/sessions/{settings.BotSessionId}/send-message",
                 payload,
                 ct);
 

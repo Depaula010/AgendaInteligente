@@ -68,6 +68,12 @@ public sealed class TenantSettings : IMustHaveTenant
     /// </summary>
     public string? ConflictMessageTemplate { get; set; }
 
+    // ── Integração WhatsApp Bot ────────────────────────────────────────────────
+    /// <summary>
+    /// ID da sessão no bot Node.js (Baileys). Null até o WhatsApp ser vinculado via B24.
+    /// </summary>
+    public Guid? BotSessionId { get; set; }
+
     // ── Configurações de IA (Gemini) ───────────────────────────────────────────
     /// <summary>
     /// Chave da API do Gemini. Se nula, o sistema pode tentar usar uma chave global (fallback).

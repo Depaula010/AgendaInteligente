@@ -14,6 +14,10 @@ public sealed class TenantSettingsRepository : ITenantSettingsRepository
     public Task<TenantSettings?> GetAsync(CancellationToken ct = default)
         => _db.TenantSettings.FirstOrDefaultAsync(ct);
 
+    public Task<TenantSettings?> GetByTenantIdAsync(Guid tenantId, CancellationToken ct = default)
+        => _db.TenantSettings.IgnoreQueryFilters()
+                             .FirstOrDefaultAsync(s => s.TenantId == tenantId, ct);
+
     public async Task<TenantSettings> CreateAsync(TenantSettings settings, CancellationToken ct = default)
     {
         _db.TenantSettings.Add(settings);

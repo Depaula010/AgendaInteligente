@@ -34,7 +34,7 @@ public sealed class BotIntentDispatcherServiceTests
         _settingsMock        = new Mock<ITenantSettingsRepository>();
 
         // Default: customer existente, serviço "Corte", profissional "João"
-        _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Customer { Id = Guid.NewGuid(), Name = SenderPhone, PhoneNumber = SenderPhone, TenantId = TenantId });
 
         _serviceMock.Setup(r => r.GetAllActiveAsync(It.IsAny<CancellationToken>()))
@@ -167,7 +167,7 @@ public sealed class BotIntentDispatcherServiceTests
     [Fact]
     public async Task DispatchAsync_ScheduleIntent_NoExistingCustomer_CreatesCustomerThenSchedule()
     {
-        _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Customer?)null);
         _customerMock.Setup(r => r.CreateAsync(It.IsAny<Customer>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Customer c, CancellationToken _) => c);
@@ -278,7 +278,7 @@ public sealed class BotIntentDispatcherServiceTests
     [Fact]
     public async Task DispatchAsync_CancelIntent_NoCustomer_ReturnsNotFoundMessage()
     {
-        _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Customer?)null);
 
         var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
