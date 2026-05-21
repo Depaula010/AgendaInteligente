@@ -4,6 +4,7 @@ using AgendaInteligente.Api.Models.AI;
 using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services;
 using AgendaInteligente.Api.Services.Interfaces;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -15,17 +16,21 @@ public sealed class WebhookServiceTests
     private readonly Mock<IConversationHistoryService>  _historyMock;
     private readonly Mock<IAiOrchestratorService>       _aiMock;
     private readonly Mock<IBotIntentDispatcherService>  _dispatcherMock;
+    private readonly Mock<IScheduleService>             _scheduleServiceMock;
     private readonly Mock<ICustomerRepository>          _customerMock;
+    private readonly Mock<IDistributedCache>            _cacheMock;
     private readonly WebhookService                     _service;
 
     private static readonly Guid ValidTenantId = Guid.NewGuid();
 
     public WebhookServiceTests()
     {
-        _historyMock    = new Mock<IConversationHistoryService>();
-        _aiMock         = new Mock<IAiOrchestratorService>();
-        _dispatcherMock = new Mock<IBotIntentDispatcherService>();
-        _customerMock   = new Mock<ICustomerRepository>();
+        _historyMock         = new Mock<IConversationHistoryService>();
+        _aiMock              = new Mock<IAiOrchestratorService>();
+        _dispatcherMock      = new Mock<IBotIntentDispatcherService>();
+        _scheduleServiceMock = new Mock<IScheduleService>();
+        _customerMock        = new Mock<ICustomerRepository>();
+        _cacheMock           = new Mock<IDistributedCache>();
 
         // Defaults: mensagem nova (não duplicada), histórico vazio
         _historyMock.Setup(h => h.IsMessageDuplicateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -47,11 +52,17 @@ public sealed class WebhookServiceTests
         _customerMock.Setup(r => r.CreateAsync(It.IsAny<Customer>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Customer c, CancellationToken _) => c);
 
+        // Default cache: sem confirmação pendente de lembrete
+        _cacheMock.Setup(c => c.GetAsync(It.Is<string>(k => k.StartsWith("reminder:confirm:")), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[]?)null);
+
         _service = new WebhookService(
             _historyMock.Object,
             _aiMock.Object,
             _dispatcherMock.Object,
+            _scheduleServiceMock.Object,
             _customerMock.Object,
+            _cacheMock.Object,
             new NullLogger<WebhookService>());
     }
 

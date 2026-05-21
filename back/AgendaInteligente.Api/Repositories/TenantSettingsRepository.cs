@@ -18,6 +18,13 @@ public sealed class TenantSettingsRepository : ITenantSettingsRepository
         => _db.TenantSettings.IgnoreQueryFilters()
                              .FirstOrDefaultAsync(s => s.TenantId == tenantId, ct);
 
+    public Task<IReadOnlyList<TenantSettings>> GetAllWithReminderEnabledAsync(CancellationToken ct = default)
+        => _db.TenantSettings
+              .IgnoreQueryFilters()
+              .Where(s => s.ReminderLeadTimeHours > 0)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<TenantSettings>)t.Result, ct);
+
     public async Task<TenantSettings> CreateAsync(TenantSettings settings, CancellationToken ct = default)
     {
         _db.TenantSettings.Add(settings);

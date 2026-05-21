@@ -154,20 +154,22 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
     {
         var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct);
         if (customer is null)
-            return "Não encontrei nenhum agendamento pendente para você.";
+            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
 
         var upcoming = await _scheduleRepo.GetUpcomingByCustomerIdAsync(customer.Id, ct);
         if (upcoming.Count == 0)
-            return "Não encontrei nenhum agendamento pendente para você.";
+            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
 
-        var next = upcoming[0];
+        var next        = upcoming[0];
+        var serviceName = next.Service?.Name;
         await _scheduleService.UpdateStatusAsync(next.Id, ScheduleStatus.Cancelled, ct);
 
         _logger.LogInformation(
             "Agendamento cancelado via bot. ScheduleId={Id}, TenantId={TenantId}, Phone={Phone}",
             next.Id, tenantId, senderPhone);
 
-        return $"Seu agendamento do dia {next.StartDateTime:dd/MM/yyyy} às {next.StartDateTime:HH:mm} foi cancelado com sucesso! " +
+        return $"Seu agendamento{(serviceName is not null ? $" de {serviceName}" : "")} do dia " +
+               $"{next.StartDateTime:dd/MM/yyyy} às {next.StartDateTime:HH:mm} foi cancelado com sucesso! " +
                "Se quiser remarcar, é só me avisar.";
     }
 

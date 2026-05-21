@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Domain.Enums;
 using AgendaInteligente.Api.Domain.Exceptions;
@@ -10,25 +11,26 @@ namespace AgendaInteligente.Api.Services;
 
 public sealed class ScheduleService : IScheduleService
 {
-    // Horário comercial assumido para busca de alternativas (UTC offset 0; timezone é responsabilidade da UI)
-    private const int WorkDayStartHour = 8;
-    private const int WorkDayEndHour   = 18;
+    private static readonly JsonSerializerOptions _jsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    private readonly IScheduleRepository       _scheduleRepo;
-    private readonly IServiceCatalogRepository _serviceRepo;
-    private readonly ICalendarSyncQueue        _syncQueue;
-    private readonly IWaitlistService          _waitlistService;
-    private readonly ILogger<ScheduleService>  _logger;
+    private readonly IScheduleRepository         _scheduleRepo;
+    private readonly IServiceCatalogRepository   _serviceRepo;
+    private readonly ITenantSettingsRepository   _settingsRepo;
+    private readonly ICalendarSyncQueue          _syncQueue;
+    private readonly IWaitlistService            _waitlistService;
+    private readonly ILogger<ScheduleService>    _logger;
 
     public ScheduleService(
         IScheduleRepository scheduleRepo,
         IServiceCatalogRepository serviceRepo,
+        ITenantSettingsRepository settingsRepo,
         ICalendarSyncQueue syncQueue,
         IWaitlistService waitlistService,
         ILogger<ScheduleService> logger)
     {
         _scheduleRepo    = scheduleRepo;
         _serviceRepo     = serviceRepo;
+        _settingsRepo    = settingsRepo;
         _syncQueue       = syncQueue;
         _waitlistService = waitlistService;
         _logger          = logger;
@@ -350,16 +352,17 @@ public sealed class ScheduleService : IScheduleService
         var durationMinutes = service.DurationMinutes;
         var alternatives    = new List<DateTime>();
         var requestedDate   = requestedTime.Date;
+        var settings        = await _settingsRepo.GetAsync(ct);
 
         for (var dayOffset = 0; dayOffset <= maxSearchDays && alternatives.Count < count; dayOffset++)
         {
             var targetDate = requestedDate.AddDays(dayOffset);
 
-            // Gera todos os candidatos do dia dentro do horário comercial
-            var candidates = GenerateDayCandidates(targetDate, durationMinutes);
+            var window = ResolveWorkingWindow(targetDate, settings, durationMinutes);
+            if (window is null) continue;
 
-            // Para o dia solicitado: ordena por proximidade ao horário pedido (antes e depois)
-            // Para dias futuros: mantém ordem cronológica (mais cedo primeiro)
+            var candidates = GenerateDayCandidates(window.Value.Start, window.Value.End, durationMinutes);
+
             var orderedCandidates = dayOffset == 0
                 ? candidates.OrderBy(c => Math.Abs((c - requestedTime).TotalMinutes))
                 : candidates.AsEnumerable();
@@ -387,22 +390,104 @@ public sealed class ScheduleService : IScheduleService
         return alternatives.AsReadOnly();
     }
 
+    /// <summary>
+    /// Retorna todos os slots livres de um dia inteiro para um profissional e serviço.
+    /// Varre os candidatos do horário comercial (08h–18h UTC) e descarta:
+    ///   - slots que conflitam com agendamentos ou folgas existentes;
+    ///   - slots já passados (quando a data consultada é hoje).
+    /// </summary>
+    public async Task<IReadOnlyList<DateTime>> GetAvailableSlotsAsync(
+        Guid professionalId,
+        Guid serviceId,
+        DateOnly date,
+        CancellationToken ct = default)
+    {
+        var service = await _serviceRepo.GetByIdAsync(serviceId, ct)
+            ?? throw new KeyNotFoundException($"Serviço '{serviceId}' não encontrado ou inativo.");
+
+        var settings  = await _settingsRepo.GetAsync(ct);
+        var dateAsUtc = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        var window    = ResolveWorkingWindow(dateAsUtc, settings, service.DurationMinutes);
+
+        if (window is null)
+            return Array.Empty<DateTime>();
+
+        var allCandidates = GenerateDayCandidates(window.Value.Start, window.Value.End, service.DurationMinutes).ToList();
+        var available     = new List<DateTime>();
+
+        foreach (var slot in allCandidates)
+        {
+            if (slot < DateTime.UtcNow) continue;
+
+            var slotEnd   = slot.AddMinutes(service.DurationMinutes);
+            var conflicts = await _scheduleRepo.GetConflictingAsync(professionalId, slot, slotEnd, ct);
+
+            if (conflicts.Count == 0)
+                available.Add(slot);
+        }
+
+        _logger.LogInformation(
+            "Slots disponíveis para profissional '{ProfessionalId}' em {Date}: {Free}/{Total} livre(s).",
+            professionalId, date, available.Count, allCandidates.Count);
+
+        return available.AsReadOnly();
+    }
+
     // ── Helpers privados ─────────────────────────────────────────────────────────
 
+    private sealed record WorkingHoursEntry(int DayOfWeek, string OpenTime, string CloseTime);
+
     /// <summary>
-    /// Gera todos os candidatos de horário para um dado dia, de WorkDayStartHour até
-    /// WorkDayEndHour − duração do serviço, com granularidade de 30 minutos.
+    /// Resolve a janela de trabalho (início/fim) para uma data considerando:
+    ///   1. DaysOffJson — se a data for folga explícita, retorna null.
+    ///   2. WorkingHoursJson — usa os horários configurados para o dia da semana;
+    ///      se o dia não estiver na lista, o estabelecimento está fechado → null.
+    ///   3. WorkingHoursJson vazio ou settings null — fallback 08h–18h todos os dias.
     /// </summary>
-    private static IEnumerable<DateTime> GenerateDayCandidates(DateTime date, int durationMinutes)
+    private static (DateTime Start, DateTime End)? ResolveWorkingWindow(
+        DateTime date, TenantSettings? settings, int durationMinutes)
     {
-        const int granularityMinutes = 30;
+        // ── 1. Verifica folgas explícitas ─────────────────────────────────────
+        if (settings?.DaysOffJson is { Length: > 2 } daysOffJson)
+        {
+            var daysOff = JsonSerializer.Deserialize<List<string>>(daysOffJson, _jsonOpts) ?? [];
+            if (daysOff.Contains(DateOnly.FromDateTime(date).ToString("yyyy-MM-dd")))
+                return null;
+        }
 
-        var dayStart = DateTime.SpecifyKind(date.Date.AddHours(WorkDayStartHour), DateTimeKind.Utc);
-        var dayEnd   = DateTime.SpecifyKind(date.Date.AddHours(WorkDayEndHour), DateTimeKind.Utc);
+        // ── 2. Resolve horário do dia ─────────────────────────────────────────
+        TimeOnly openTime  = new(8,  0);
+        TimeOnly closeTime = new(18, 0);
 
-        // O slot candidato deve terminar antes ou exatamente no fim do horário comercial
-        var lastPossibleStart = dayEnd.AddMinutes(-durationMinutes);
+        if (settings?.WorkingHoursJson is { Length: > 2 } hoursJson)
+        {
+            var entries = JsonSerializer.Deserialize<List<WorkingHoursEntry>>(hoursJson, _jsonOpts) ?? [];
+            if (entries.Count > 0)
+            {
+                var dayOfWeek = (int)date.DayOfWeek;
+                var entry     = entries.FirstOrDefault(e => e.DayOfWeek == dayOfWeek);
+                if (entry is null) return null; // dia não está no calendário de trabalho
 
+                openTime  = TimeOnly.Parse(entry.OpenTime);
+                closeTime = TimeOnly.Parse(entry.CloseTime);
+            }
+        }
+
+        var dayStart = DateTime.SpecifyKind(date.Date.Add(openTime.ToTimeSpan()),  DateTimeKind.Utc);
+        var dayEnd   = DateTime.SpecifyKind(date.Date.Add(closeTime.ToTimeSpan()), DateTimeKind.Utc);
+
+        return (dayStart, dayEnd);
+    }
+
+    /// <summary>
+    /// Gera os candidatos de início de slot entre <paramref name="dayStart"/> e
+    /// <paramref name="dayEnd"/> com granularidade igual à duração do serviço.
+    /// O último slot deve terminar no máximo em <paramref name="dayEnd"/>.
+    /// </summary>
+    private static IEnumerable<DateTime> GenerateDayCandidates(
+        DateTime dayStart, DateTime dayEnd, int granularityMinutes)
+    {
+        var lastPossibleStart = dayEnd.AddMinutes(-granularityMinutes);
         for (var slot = dayStart; slot <= lastPossibleStart; slot = slot.AddMinutes(granularityMinutes))
             yield return slot;
     }

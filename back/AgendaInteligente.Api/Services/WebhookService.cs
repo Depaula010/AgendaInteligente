@@ -1,10 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using AgendaInteligente.Api.Contracts.Reminders;
 using AgendaInteligente.Api.Contracts.Requests.Webhook;
 using AgendaInteligente.Api.Domain.Entities;
+using AgendaInteligente.Api.Domain.Enums;
 using AgendaInteligente.Api.Models.AI;
 using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services.Interfaces;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 
 namespace AgendaInteligente.Api.Services;
@@ -14,20 +18,26 @@ public sealed class WebhookService : IWebhookService
     private readonly IConversationHistoryService _conversationHistory;
     private readonly IAiOrchestratorService      _aiOrchestrator;
     private readonly IBotIntentDispatcherService _intentDispatcher;
+    private readonly IScheduleService            _scheduleService;
     private readonly ICustomerRepository         _customerRepo;
+    private readonly IDistributedCache           _cache;
     private readonly ILogger<WebhookService>     _logger;
 
     public WebhookService(
         IConversationHistoryService conversationHistory,
         IAiOrchestratorService aiOrchestrator,
         IBotIntentDispatcherService intentDispatcher,
+        IScheduleService scheduleService,
         ICustomerRepository customerRepo,
+        IDistributedCache cache,
         ILogger<WebhookService> logger)
     {
         _conversationHistory = conversationHistory;
         _aiOrchestrator      = aiOrchestrator;
         _intentDispatcher    = intentDispatcher;
+        _scheduleService     = scheduleService;
         _customerRepo        = customerRepo;
+        _cache               = cache;
         _logger              = logger;
     }
 
@@ -76,10 +86,28 @@ public sealed class WebhookService : IWebhookService
                 tenantId, request.NumeroRemetente);
         }
 
-        // 3. Histórico da conversa — carrega do Redis (chave: chat:{tenantId}:{phone})
+        // 3. Confirmação de lembrete pendente — intercepta ANTES do AI para economizar chamadas
+        var confirmKey  = $"reminder:confirm:{tenantId}:{request.NumeroRemetente}";
+        var pendingJson = await _cache.GetStringAsync(confirmKey, ct);
+        if (pendingJson is not null)
+        {
+            var state = JsonSerializer.Deserialize<PendingReminderState>(pendingJson)!;
+            var (reply, clearKey) = await HandleReminderConfirmationAsync(state, request.Texto, ct);
+
+            if (clearKey)
+                await _cache.RemoveAsync(confirmKey, ct);
+
+            _logger.LogInformation(
+                "Confirmação de lembrete processada. TenantId={TenantId}, ScheduleId={ScheduleId}, ClearKey={Clear}",
+                tenantId, state.ScheduleId, clearKey);
+
+            return reply;
+        }
+
+        // 4. Histórico da conversa — carrega do Redis (chave: chat:{tenantId}:{phone})
         var history = await _conversationHistory.GetHistoryAsync(tenantId, request.NumeroRemetente, ct);
 
-        // 4. Processamento via IA
+        // 5. Processamento via IA
         GeminiIntentResponse aiResponse;
         try
         {
@@ -97,10 +125,10 @@ public sealed class WebhookService : IWebhookService
             return "Desculpe, ocorreu um erro interno. Por favor, tente novamente em instantes.";
         }
 
-        // 5. Dispatch de intenção — age sobre schedule/cancel ou passa reply da IA inalterado
+        // 6. Dispatch de intenção — age sobre schedule/cancel ou passa reply da IA inalterado
         var replyMessage = await _intentDispatcher.DispatchAsync(aiResponse, tenantId, request.NumeroRemetente, ct);
 
-        // 6. Persiste histórico (turno atual)
+        // 7. Persiste histórico (turno atual)
         var updatedHistory = new List<MessageHistory>(history)
         {
             new() { Role = "user",  Content = request.Texto },
@@ -108,8 +136,46 @@ public sealed class WebhookService : IWebhookService
         };
         await _conversationHistory.SaveHistoryAsync(tenantId, request.NumeroRemetente, updatedHistory, ct);
 
-        // 7. Retorna resposta — o bot recebe via JSON { resposta } e encaminha ao usuário
+        // 8. Retorna resposta — o bot recebe via JSON { resposta } e encaminha ao usuário
         return replyMessage;
+    }
+
+    // ── Confirmação de lembrete ───────────────────────────────────────────────────
+
+    private async Task<(string Reply, bool ClearKey)> HandleReminderConfirmationAsync(
+        PendingReminderState state, string text, CancellationToken ct)
+    {
+        var normalized = text.Trim().ToLowerInvariant();
+
+        if (normalized is "1" or "confirmar" or "confirmado" or "sim" or "ok")
+        {
+            await _scheduleService.UpdateStatusAsync(state.ScheduleId, ScheduleStatus.Confirmed, ct);
+            return (
+                $"Confirmado! Te esperamos em {state.AppointmentStart:dd/MM} as " +
+                $"{state.AppointmentStart:HH:mm}. Ate mais!",
+                true);
+        }
+
+        if (normalized is "3" or "cancelar" or "cancela" or "nao" or "não")
+        {
+            await _scheduleService.UpdateStatusAsync(state.ScheduleId, ScheduleStatus.Cancelled, ct);
+            return ("Agendamento cancelado. Se quiser remarcar, e so falar comigo!", true);
+        }
+
+        if (normalized is "2" or "remarcar" or "remarca" or "reagendar")
+        {
+            // Limpa o estado pendente — próxima mensagem entra no fluxo normal de agendamento
+            return ("Claro! Qual data e horario voce prefere?", true);
+        }
+
+        // Resposta não reconhecida — re-pergunta sem limpar o estado pendente
+        return (
+            "Nao entendi. Por favor, responda:\n" +
+            "1 - Confirmar\n" +
+            "2 - Remarcar\n" +
+            "3 - Cancelar\n\n" +
+            $"(Agendamento: {state.ServiceName} em {state.AppointmentStart:dd/MM} as {state.AppointmentStart:HH:mm})",
+            false);
     }
 
     private static string GenerateMessageId(Guid tenantId, string phone, string text)

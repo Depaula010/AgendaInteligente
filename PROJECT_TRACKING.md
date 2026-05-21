@@ -6,8 +6,9 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
 
 ## 🚧 1. Etapa Atual em Desenvolvimento
 
-**Frontend PWA — Dashboard (Painel Principal de Agendamentos)**
-- Próximo passo: implementar a tela de Dashboard com visualização de agenda estilo Google Calendar.
+**Backend — B29 (próxima feature a definir)**
+- B28 (Cancelamento via WhatsApp) concluído. 178 testes passando.
+- Próximo passo a definir: reengajamento automático, dashboard frontend ou outra feature do backlog.
 
 ---
 
@@ -160,6 +161,44 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
   * [x] **B24 — `GET /api/v1/whatsapp/session/status`:** consulta `GET /api/v1/sessions/{id}` no bot; se não conectado, tenta `GET /api/v1/sessions/{id}/qr` para obter o QR code em base64. Status especial `not_configured` quando `BotSessionId` é null.
   * [x] **Testes:** `WebhookServiceTests` reescrito para nova assinatura (return `string`, sem `_sendMock`, sem `MessageId` no request). `WhatsAppSessionServiceTests` (7 testes: guard clauses BotUrl, TenantId, settings + GetStatus not_configured).
   * [x] **Total: 155 testes — 155 aprovados, 0 falhas, 0 warnings.**
+
+* [x] **B26 — Endpoint de Slots Disponíveis:**
+  * [x] `GET /api/v1/schedules/available?professionalId=&serviceId=&date=` retorna horários livres do dia para a IA e o dashboard.
+  * [x] **Granularidade = `service.DurationMinutes`:** um serviço de 20 min gera slots de 20 em 20; um de 60 min, de hora em hora. Nenhum valor hardcoded.
+  * [x] **Horários de funcionamento por dia da semana:** lidos de `TenantSettings.WorkingHoursJson` (`[{"dayOfWeek":N,"openTime":"HH:mm","closeTime":"HH:mm"}]`). Fallback 08h–18h quando ainda não configurado (`"[]"`).
+  * [x] **Dias de folga:** respeitados via `TenantSettings.DaysOffJson` (`["2026-01-01",...]`) — retorna lista vazia se a data for folga ou dia fora do calendário de trabalho.
+  * [x] `GetAlternativeTimesAsync` (usado no conflito de agendamento) atualizado com a mesma lógica de horário e granularidade.
+  * [x] `ITenantSettingsRepository` injetado em `ScheduleService` (construtor atualizado; DI já tinha o repo registrado).
+  * [x] **Novos testes (9 adicionados):** `GetAvailableSlotsAsync_WhenAllSlotsAreFree` (10 slots, 60 min), `WhenAllSlotsConflict`, `WhenSomeSlotsConflict` (9 slots), `WhenDateIsInPast`, `WhenWorkingHoursConfigured_UsesTenantHours` (13 slots 09h–21h), `WhenDateIsDayOff`, `WhenDayNotInWorkSchedule`, `GranularityMatchesServiceDuration` (30 slots para serviço de 20 min).
+  * [x] **Total: 173 testes — 173 aprovados, 0 falhas, 0 avisos.**
+
+* [x] **B27 — Lembretes Automáticos via WhatsApp:**
+  * [x] `ReminderBackgroundService` (`BackgroundService`) — executa `IReminderService.ProcessRemindersAsync` a cada hora via `IServiceScopeFactory` (padrão correto para serviços Scoped dentro de Singleton).
+  * [x] `ReminderService` — lógica de envio scoped e testável:
+    * Horário de silêncio: não envia entre 22h–07h UTC.
+    * Janela de busca: `[now + ReminderLeadTimeHours - 30min, now + ReminderLeadTimeHours + 30min]`.
+    * Dedup: Redis `reminder:sent:{scheduleId}` TTL 48h — nunca envia dois lembretes para o mesmo agendamento.
+    * Após envio bem-sucedido: grava `reminder:confirm:{tenantId}:{phone}` (TTL 4h) com `PendingReminderState` (scheduleId, horário, serviço, profissional).
+  * [x] `PendingReminderState` — record serializado no Redis com os dados necessários para processar a resposta do cliente.
+  * [x] `ITenantSettingsRepository.GetAllWithReminderEnabledAsync` — busca todos os tenants com `ReminderLeadTimeHours > 0` ignorando o filtro global (contexto de background job).
+  * [x] `IScheduleRepository.GetUpcomingForReminderAsync` — busca agendamentos por tenant explícito na janela de tempo, com `Include` de Customer/Service/Professional e `IgnoreQueryFilters`.
+  * [x] **`WebhookService` — intercept de confirmação antes do Gemini:** verifica Redis por `reminder:confirm:{tenantId}:{phone}` antes de qualquer chamada à IA; se encontrado, processa a resposta diretamente:
+    * `"1" / "confirmar" / "sim"` → `ScheduleStatus.Confirmed`.
+    * `"3" / "cancelar" / "não"` → `ScheduleStatus.Cancelled` (dispara waitlist via `IScheduleService`).
+    * `"2" / "remarcar" / "reagendar"` → limpa estado pendente; próxima mensagem entra no fluxo normal de agendamento pela IA.
+    * Resposta não reconhecida → re-pergunta sem limpar o estado (cliente tem até o TTL expirar para responder).
+  * [x] `TimeProvider` injetado no `ReminderService` (opcional, default `TimeProvider.System`) para testabilidade do horário de silêncio sem depender do relógio real.
+  * [x] **Novos testes (13 adicionados):** `ReminderServiceTests` — quiet hours (5 horários), sem tenants, já enviado, customer sem telefone, envio com sucesso seta Redis `sent` + Redis `confirm`, envio com falha não seta Redis, mensagem contém todos os campos, janela de tempo correta.
+  * [x] **Total: 177 testes — 177 aprovados, 0 falhas, 0 avisos.**
+
+* [x] **B28 — Cancelamento via WhatsApp:**
+  * [x] `GetUpcomingByCustomerIdAsync` atualizado para incluir agendamentos com status `Confirmed` (além de `Pending`) — um cliente com agendamento confirmado também pode cancelar via bot.
+  * [x] Adicionados `Include(s => s.Service)` e `Include(s => s.Professional)` para carregar dados relacionados na consulta.
+  * [x] `HandleCancelAsync` em `BotIntentDispatcherService` atualizado:
+    * Mensagem "não encontrado" alterada para "pendente **ou confirmado**" (reflete o novo comportamento).
+    * Nome do serviço incluído na mensagem de confirmação: *"Seu agendamento de Corte do dia..."* (opcional — sem Service retorna mensagem genérica).
+  * [x] **Novo teste:** `DispatchAsync_CancelIntent_HasConfirmedAppointment_CancelsAndReturnsConfirmation` — verifica que agendamento `Confirmed` é cancelado e a resposta contém serviço + data + hora.
+  * [x] **Total: 178 testes — 178 aprovados, 0 falhas, 0 avisos.**
 
 * [x] **Setup Frontend PWA (React + Vite) e Telas de Autenticação:**
   * [x] Projeto React 19 + TypeScript inicializado com Vite 6 na pasta `front/`.

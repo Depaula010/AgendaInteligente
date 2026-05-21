@@ -47,17 +47,22 @@ public interface IScheduleService
     /// A busca considera a duração do serviço e varre a janela de dias configurada.
     /// Retorna os <paramref name="count"/> slots mais próximos (antes e depois) disponíveis.
     /// </summary>
-    /// <param name="professionalId">Profissional cujos slots serão avaliados.</param>
-    /// <param name="serviceId">Serviço cujo DurationMinutes determina o tamanho do slot necessário.</param>
-    /// <param name="requestedTime">Data/hora solicitada pelo cliente (ponto de referência da busca).</param>
-    /// <param name="count">Quantidade máxima de alternativas a retornar. Padrão: 3.</param>
-    /// <param name="maxSearchDays">Janela de busca em dias (D+N) se o dia solicitado estiver lotado. Padrão: 7.</param>
-    /// <param name="ct">Cancellation token.</param>
     Task<IReadOnlyList<DateTime>> GetAlternativeTimesAsync(
         Guid professionalId,
         Guid serviceId,
         DateTime requestedTime,
         int count = 3,
         int maxSearchDays = 7,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Retorna todos os slots livres do dia para um profissional e serviço.
+    /// Respeita a duração do serviço e o horário comercial (08h–18h UTC).
+    /// Usado pelo dashboard e pela IA para listar opções de horário.
+    /// </summary>
+    Task<IReadOnlyList<DateTime>> GetAvailableSlotsAsync(
+        Guid professionalId,
+        Guid serviceId,
+        DateOnly date,
         CancellationToken ct = default);
 }

@@ -16,6 +16,7 @@ public sealed class ScheduleServiceTests
     // ── Fixtures ───────────────────────────────────────────────────────────────
     private readonly Mock<IScheduleRepository>       _scheduleRepoMock = new();
     private readonly Mock<IServiceCatalogRepository> _serviceRepoMock  = new();
+    private readonly Mock<ITenantSettingsRepository> _settingsRepoMock = new();
     private readonly Mock<ICalendarSyncQueue>        _syncQueueMock    = new();
     private readonly Mock<IWaitlistService>          _waitlistSvcMock  = new();
     private readonly ScheduleService _sut;
@@ -46,6 +47,7 @@ public sealed class ScheduleServiceTests
         _sut = new ScheduleService(
             _scheduleRepoMock.Object,
             _serviceRepoMock.Object,
+            _settingsRepoMock.Object,
             _syncQueueMock.Object,
             _waitlistSvcMock.Object,
             NullLogger<ScheduleService>.Instance);
@@ -749,5 +751,158 @@ public sealed class ScheduleServiceTests
         // Assert
         Assert.IsType<InvalidOperationException>(exception);
         Assert.Contains("não é um bloqueio", exception.Message);
+    }
+
+    // ── B26 — GetAvailableSlotsAsync ──────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenServiceNotFound_ThrowsKeyNotFoundException()
+    {
+        _serviceRepoMock.Setup(r => r.GetByIdAsync(ServiceId, default)).ReturnsAsync((Service?)null);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, new DateOnly(2099, 6, 15)));
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenAllSlotsAreFree_ReturnsAllDayCandidates()
+    {
+        // 60-min service, granularity = service duration (60 min), fallback 08:00-18:00
+        // Slots: 08:00, 09:00, ..., 17:00 = 10 candidates (last ends at 18:00)
+        SetupServiceExists(); // DefaultService: DurationMinutes = 60
+        SetupNoConflicts();
+
+        var date   = new DateOnly(2099, 6, 15); // data futura — sem filtro de passado
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, date);
+
+        Assert.Equal(10, result.Count);
+        Assert.Equal(new DateTime(2099, 6, 15, 8, 0, 0, DateTimeKind.Utc),  result[0]);
+        Assert.Equal(new DateTime(2099, 6, 15, 17, 0, 0, DateTimeKind.Utc), result[^1]);
+        Assert.All(result, dt => Assert.Equal(DateTimeKind.Utc, dt.Kind));
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenAllSlotsConflict_ReturnsEmptyList()
+    {
+        SetupServiceExists();
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, new DateOnly(2099, 6, 15));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenSomeSlotsConflict_ReturnsOnlyFreeSlots()
+    {
+        SetupServiceExists(); // 60 min, granularity = 60 min
+
+        var slot10h = new DateTime(2099, 6, 15, 10, 0, 0, DateTimeKind.Utc);
+
+        // 10:00 bloqueado, restante livre
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d == slot10h),
+                It.IsAny<DateTime>(), default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d != slot10h),
+                It.IsAny<DateTime>(), default))
+            .ReturnsAsync([]);
+
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, new DateOnly(2099, 6, 15));
+
+        Assert.Equal(9, result.Count); // 10 total - 1 bloqueado
+        Assert.DoesNotContain(slot10h, result);
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenDateIsInPast_ReturnsEmptyList()
+    {
+        SetupServiceExists();
+        SetupNoConflicts();
+
+        var pastDate = new DateOnly(2000, 1, 1);
+        var result   = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, pastDate);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenWorkingHoursConfigured_UsesTenantHours()
+    {
+        // 2099-06-15 — determine day of week dynamically to avoid hardcoding
+        // Configure tenant working hours: that day 09:00-22:00
+        // 60-min service → slots 09:00, 10:00, ..., 21:00 = 13 candidates
+        SetupServiceExists(); // DurationMinutes = 60
+        SetupNoConflicts();
+
+        var date      = new DateOnly(2099, 6, 15);
+        var dayOfWeek = (int)new DateTime(2099, 6, 15).DayOfWeek;
+        var settings  = new TenantSettings
+        {
+            WorkingHoursJson = $"[{{\"dayOfWeek\":{dayOfWeek},\"openTime\":\"09:00\",\"closeTime\":\"22:00\"}}]"
+        };
+        _settingsRepoMock.Setup(r => r.GetAsync(default)).ReturnsAsync(settings);
+
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, date);
+
+        Assert.Equal(13, result.Count); // 09:00..21:00 com step 60 min
+        Assert.Equal(new DateTime(2099, 6, 15, 9,  0, 0, DateTimeKind.Utc), result[0]);
+        Assert.Equal(new DateTime(2099, 6, 15, 21, 0, 0, DateTimeKind.Utc), result[^1]);
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenDateIsDayOff_ReturnsEmpty()
+    {
+        SetupServiceExists();
+        SetupNoConflicts();
+
+        var settings = new TenantSettings { DaysOffJson = "[\"2099-06-15\"]" };
+        _settingsRepoMock.Setup(r => r.GetAsync(default)).ReturnsAsync(settings);
+
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, new DateOnly(2099, 6, 15));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_WhenDayNotInWorkSchedule_ReturnsEmpty()
+    {
+        // Configure only the day after 2099-06-15 as a working day → queried date is closed
+        SetupServiceExists();
+        SetupNoConflicts();
+
+        var date          = new DateOnly(2099, 6, 15);
+        var otherDayOfWeek = ((int)new DateTime(2099, 6, 15).DayOfWeek + 1) % 7;
+        var settings = new TenantSettings
+        {
+            WorkingHoursJson = $"[{{\"dayOfWeek\":{otherDayOfWeek},\"openTime\":\"09:00\",\"closeTime\":\"18:00\"}}]"
+        };
+        _settingsRepoMock.Setup(r => r.GetAsync(default)).ReturnsAsync(settings);
+
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, date);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetAvailableSlotsAsync_GranularityMatchesServiceDuration()
+    {
+        // 20-min service, fallback 08:00-18:00
+        // step = 20 min; lastPossibleStart = 17:40 → slots: 08:00..17:40 = 30 candidates
+        var service20 = new Service { Id = ServiceId, Name = "Sobrancelha", DurationMinutes = 20, Price = 30m, TenantId = Guid.NewGuid() };
+        _serviceRepoMock.Setup(r => r.GetByIdAsync(ServiceId, default)).ReturnsAsync(service20);
+        SetupNoConflicts();
+
+        var result = await _sut.GetAvailableSlotsAsync(ProfessionalId, ServiceId, new DateOnly(2099, 6, 15));
+
+        Assert.Equal(30, result.Count);
+        Assert.Equal(new DateTime(2099, 6, 15, 8,  0,  0, DateTimeKind.Utc), result[0]);
+        Assert.Equal(new DateTime(2099, 6, 15, 17, 40, 0, DateTimeKind.Utc), result[^1]);
     }
 }

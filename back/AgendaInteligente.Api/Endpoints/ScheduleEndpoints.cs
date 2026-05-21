@@ -111,6 +111,18 @@ public static class ScheduleEndpoints
             return success ? Results.NoContent() : Results.NotFound();
         });
 
+        // ── Available Slots (B26) ──────────────────────────────────────────────
+        group.MapGet("/available", GetAvailableSlotsAsync)
+            .WithName("GetAvailableSlots")
+            .WithSummary("Retorna slots livres do dia para um profissional e serviço")
+            .WithDescription(
+                "Varre o horário comercial (08h–18h UTC) com granularidade de 30 min, " +
+                "descartando slots com conflito de agendamento/folga e horários já passados. " +
+                "Usado pelo dashboard para exibir o seletor de horários e pela IA para sugerir alternativas.")
+            .Produces<AvailableSlotsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         // ── Blockouts (Folgas) ─────────────────────────────────────────────────
         var blockGroup = app.MapGroup("/api/v1/schedules/block")
             .WithTags("Schedules (Blockouts)")
@@ -186,5 +198,39 @@ public static class ScheduleEndpoints
             var success = await service.DeleteAsync(id, ct);
             return success ? Results.NoContent() : Results.NotFound();
         }).RequireAuthorization("RequireOwnerRole");
+    }
+
+    // ── B26 handler ──────────────────────────────────────────────────────────────
+
+    public static async Task<IResult> GetAvailableSlotsAsync(
+        [FromQuery] Guid professionalId,
+        [FromQuery] Guid serviceId,
+        [FromQuery] DateOnly date,
+        [FromServices] IScheduleService scheduleService,
+        [FromServices] IServiceCatalogService catalogService,
+        CancellationToken ct)
+    {
+        if (professionalId == Guid.Empty)
+            return Results.BadRequest(new { error = "professionalId é obrigatório." });
+
+        if (serviceId == Guid.Empty)
+            return Results.BadRequest(new { error = "serviceId é obrigatório." });
+
+        try
+        {
+            // Resolve duração antes de buscar slots — GetAvailableSlotsAsync também valida, mas
+            // precisamos de DurationMinutes no response para o cliente exibir os horários.
+            var svc = await catalogService.GetByIdAsync(serviceId, ct);
+            if (svc is null)
+                return Results.NotFound(new { error = $"Serviço '{serviceId}' não encontrado ou inativo." });
+
+            var slots = await scheduleService.GetAvailableSlotsAsync(professionalId, serviceId, date, ct);
+
+            return Results.Ok(new AvailableSlotsResponse(professionalId, serviceId, date, svc.DurationMinutes, slots));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return Results.NotFound(new { error = ex.Message });
+        }
     }
 }

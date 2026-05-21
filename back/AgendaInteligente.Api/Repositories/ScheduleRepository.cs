@@ -104,10 +104,28 @@ public sealed class ScheduleRepository : IScheduleRepository
     public Task<IReadOnlyList<Schedule>> GetUpcomingByCustomerIdAsync(
         Guid customerId, CancellationToken ct = default)
         => _db.Schedules
+              .Include(s => s.Service)
+              .Include(s => s.Professional)
               .Where(s => s.CustomerId == customerId
                        && s.StartDateTime >= DateTime.UtcNow
-                       && s.Status == ScheduleStatus.Pending
+                       && (s.Status == ScheduleStatus.Pending || s.Status == ScheduleStatus.Confirmed)
                        && !s.IsBlocked)
+              .OrderBy(s => s.StartDateTime)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<Schedule>)t.Result, ct);
+
+    public Task<IReadOnlyList<Schedule>> GetUpcomingForReminderAsync(
+        Guid tenantId, DateTime from, DateTime to, CancellationToken ct = default)
+        => _db.Schedules
+              .IgnoreQueryFilters()
+              .Include(s => s.Customer)
+              .Include(s => s.Service)
+              .Include(s => s.Professional)
+              .Where(s => s.TenantId == tenantId
+                       && !s.IsBlocked
+                       && (s.Status == ScheduleStatus.Pending || s.Status == ScheduleStatus.Confirmed)
+                       && s.StartDateTime >= from
+                       && s.StartDateTime < to)
               .OrderBy(s => s.StartDateTime)
               .ToListAsync(ct)
               .ContinueWith(t => (IReadOnlyList<Schedule>)t.Result, ct);

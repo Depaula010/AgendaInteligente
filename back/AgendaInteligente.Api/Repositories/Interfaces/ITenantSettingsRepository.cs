@@ -16,6 +16,12 @@ public interface ITenantSettingsRepository
     /// </summary>
     Task<TenantSettings?> GetByTenantIdAsync(Guid tenantId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Retorna todos os TenantSettings com ReminderLeadTimeHours &gt; 0 (ignorando o filtro global).
+    /// Usado pelo ReminderBackgroundService para iterar os tenants que têm lembretes ativos.
+    /// </summary>
+    Task<IReadOnlyList<TenantSettings>> GetAllWithReminderEnabledAsync(CancellationToken ct = default);
+
     Task<TenantSettings> CreateAsync(TenantSettings settings, CancellationToken ct = default);
     Task UpdateAsync(TenantSettings settings, CancellationToken ct = default);
 }

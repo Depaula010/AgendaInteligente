@@ -322,6 +322,36 @@ public sealed class BotIntentDispatcherServiceTests
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(scheduleId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task DispatchAsync_CancelIntent_HasConfirmedAppointment_CancelsAndReturnsConfirmation()
+    {
+        var scheduleId  = Guid.NewGuid();
+        var startTime   = new DateTime(2026, 5, 26, 14, 0, 0, DateTimeKind.Utc);
+        _scheduleRepoMock.Setup(r => r.GetUpcomingByCustomerIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Schedule>
+            {
+                new()
+                {
+                    Id            = scheduleId,
+                    ProfessionalId = Guid.NewGuid(),
+                    StartDateTime = startTime,
+                    EndDateTime   = startTime.AddHours(1),
+                    Status        = ScheduleStatus.Confirmed,
+                    Service       = new Service { Id = Guid.NewGuid(), Name = "Corte", DurationMinutes = 60, Price = 50m, TenantId = TenantId }
+                }
+            });
+        _scheduleServiceMock.Setup(s => s.UpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<ScheduleStatus>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
+
+        Assert.Contains("cancelado com sucesso", result);
+        Assert.Contains("Corte", result);
+        Assert.Contains("26/05/2026", result);
+        Assert.Contains("14:00", result);
+        _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(scheduleId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────
 
     private BotIntentDispatcherService BuildService() => new(

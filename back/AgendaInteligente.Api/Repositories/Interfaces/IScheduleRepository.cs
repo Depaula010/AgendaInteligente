@@ -38,4 +38,11 @@ public interface IScheduleRepository
     /// Usado pelo bot para localizar o próximo agendamento quando o cliente solicita cancelamento.
     /// </summary>
     Task<IReadOnlyList<Schedule>> GetUpcomingByCustomerIdAsync(Guid customerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retorna agendamentos de um tenant específico (sem filtro global) na janela de tempo informada,
+    /// com Customer/Service/Professional incluídos. Usado pelo ReminderBackgroundService.
+    /// </summary>
+    Task<IReadOnlyList<Schedule>> GetUpcomingForReminderAsync(
+        Guid tenantId, DateTime from, DateTime to, CancellationToken ct = default);
 }
