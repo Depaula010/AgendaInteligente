@@ -60,6 +60,10 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddScoped<ITenantRepository, TenantRepository>();
 builder.Services.AddScoped<TenantService>();
 
+// Onboarding
+builder.Services.AddScoped<IOnboardingRepository, OnboardingRepository>();
+builder.Services.AddScoped<IOnboardingService, OnboardingService>();
+
 // Professional
 builder.Services.AddScoped<IProfessionalRepository, ProfessionalRepository>();
 builder.Services.AddScoped<IProfessionalService, ProfessionalService>();
@@ -167,6 +171,7 @@ app.MapGet("/health", () => Results.Ok(new
 .WithTags("System")
 .AllowAnonymous();
 
+app.MapOnboardingEndpoints();
 app.MapAuthEndpoints();
 app.MapTenantEndpoints();
 
