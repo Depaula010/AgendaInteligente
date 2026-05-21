@@ -53,9 +53,10 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
     {
         return aiResponse.Intent switch
         {
-            "schedule" => HandleScheduleAsync(aiResponse, tenantId, senderPhone, ct),
-            "cancel"   => HandleCancelAsync(tenantId, senderPhone, ct),
-            _          => Task.FromResult(aiResponse.ReplyMessage)
+            "schedule"   => HandleScheduleAsync(aiResponse, tenantId, senderPhone, ct),
+            "cancel"     => HandleCancelAsync(tenantId, senderPhone, ct),
+            "reschedule" => HandleRescheduleAsync(aiResponse, tenantId, senderPhone, ct),
+            _            => Task.FromResult(aiResponse.ReplyMessage)
         };
     }
 
@@ -171,6 +172,97 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         return $"Seu agendamento{(serviceName is not null ? $" de {serviceName}" : "")} do dia " +
                $"{next.StartDateTime:dd/MM/yyyy} às {next.StartDateTime:HH:mm} foi cancelado com sucesso! " +
                "Se quiser remarcar, é só me avisar.";
+    }
+
+    // ── reschedule intent ─────────────────────────────────────────────────────────
+
+    private async Task<string> HandleRescheduleAsync(
+        GeminiIntentResponse aiResponse, Guid tenantId, string senderPhone, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(aiResponse.Date) || string.IsNullOrWhiteSpace(aiResponse.Time))
+            return aiResponse.ReplyMessage;
+
+        if (!DateTime.TryParseExact(
+            $"{aiResponse.Date} {aiResponse.Time}",
+            "yyyy-MM-dd HH:mm",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var newStart))
+        {
+            _logger.LogWarning("Falha ao parsear data/hora para reagendamento. Date={Date}, Time={Time}", aiResponse.Date, aiResponse.Time);
+            return aiResponse.ReplyMessage;
+        }
+
+        var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct);
+        if (customer is null)
+            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
+
+        var upcoming = await _scheduleRepo.GetUpcomingByCustomerIdAsync(customer.Id, ct);
+        if (upcoming.Count == 0)
+            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
+
+        var existing = upcoming[0];
+
+        // Resolve service: AI override → inherit from existing appointment
+        var service = existing.Service;
+        if (!string.IsNullOrWhiteSpace(aiResponse.Service))
+        {
+            var allServices = await _serviceRepo.GetAllActiveAsync(ct);
+            service = allServices.FirstOrDefault(s =>
+                s.Name.Contains(aiResponse.Service, StringComparison.OrdinalIgnoreCase))
+                ?? service;
+        }
+        if (service is null)
+        {
+            _logger.LogWarning("Serviço não encontrado para reagendamento. TenantId={TenantId}", tenantId);
+            return aiResponse.ReplyMessage;
+        }
+
+        // Resolve professional: AI override → inherit from existing appointment
+        var professional = existing.Professional;
+        if (!string.IsNullOrWhiteSpace(aiResponse.Professional))
+        {
+            var allProfessionals = await _professionalRepo.GetAllActiveAsync(ct);
+            professional = allProfessionals.FirstOrDefault(p =>
+                p.Name.Contains(aiResponse.Professional, StringComparison.OrdinalIgnoreCase))
+                ?? professional;
+        }
+        if (professional is null)
+        {
+            _logger.LogWarning("Profissional não encontrado para reagendamento. TenantId={TenantId}", tenantId);
+            return aiResponse.ReplyMessage;
+        }
+
+        // Create new appointment FIRST — only cancel old if successful
+        try
+        {
+            await _scheduleService.CreateAsync(
+                customer.Id, professional.Id, service.Id, newStart, ct: ct);
+        }
+        catch (ScheduleConflictException ex)
+        {
+            _logger.LogInformation(
+                "Conflito de horário no reagendamento via bot. Phone={Phone}, NewStart={Start}. Alternativas={Count}",
+                senderPhone, newStart, ex.SuggestedAlternatives.Count);
+            return await BuildConflictMessageAsync(ex, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Erro inesperado ao criar novo agendamento no reagendamento. TenantId={TenantId}, Phone={Phone}",
+                tenantId, senderPhone);
+            return "Ops! Ocorreu um erro ao tentar criar seu novo agendamento. Por favor, tente novamente.";
+        }
+
+        await _scheduleService.UpdateStatusAsync(existing.Id, ScheduleStatus.Cancelled, ct);
+
+        _logger.LogInformation(
+            "Agendamento reagendado via bot. OldId={OldId}, TenantId={TenantId}, Phone={Phone}, NewStart={Start}",
+            existing.Id, tenantId, senderPhone, newStart);
+
+        return $"Pronto! Seu agendamento de {service.Name} foi remarcado para " +
+               $"{newStart:dd/MM/yyyy} às {newStart:HH:mm}. " +
+               "Se precisar de mais alguma coisa, é só avisar!";
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────

@@ -60,7 +60,6 @@ public sealed class BotIntentDispatcherServiceTests
     [Theory]
     [InlineData("general")]
     [InlineData("check")]
-    [InlineData("reschedule")]
     public async Task DispatchAsync_WithNonActionableIntent_ReturnsAiReplyUnchanged(string intent)
     {
         var ai = new GeminiIntentResponse { Intent = intent, ReplyMessage = "Resposta da IA" };
@@ -352,6 +351,135 @@ public sealed class BotIntentDispatcherServiceTests
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(scheduleId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    // ── reschedule intent ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_RescheduleIntent_MissingDateTime_ReturnsAiReply()
+    {
+        var ai = new GeminiIntentResponse
+        {
+            Intent = "reschedule", Service = "Corte",
+            ReplyMessage = "Para qual dia e horário?"
+        };
+
+        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+
+        Assert.Equal("Para qual dia e horário?", result);
+        _scheduleServiceMock.Verify(s => s.CreateAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_RescheduleIntent_NoCustomer_ReturnsNotFoundMessage()
+    {
+        _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Customer?)null);
+
+        var result = await _svc.DispatchAsync(FullRescheduleIntent(), TenantId, SenderPhone);
+
+        Assert.Contains("nenhum agendamento pendente", result);
+        _scheduleServiceMock.Verify(s => s.CreateAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_RescheduleIntent_NoUpcomingAppointment_ReturnsNotFoundMessage()
+    {
+        _scheduleRepoMock.Setup(r => r.GetUpcomingByCustomerIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Schedule>());
+
+        var result = await _svc.DispatchAsync(FullRescheduleIntent(), TenantId, SenderPhone);
+
+        Assert.Contains("nenhum agendamento pendente", result);
+        _scheduleServiceMock.Verify(s => s.CreateAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_RescheduleIntent_HappyPath_CancelsOldCreatesNewReturnsConfirmation()
+    {
+        var oldId    = Guid.NewGuid();
+        var profId   = Guid.NewGuid();
+        var svcId    = Guid.NewGuid();
+        var oldStart = new DateTime(2026, 5, 26, 9, 0, 0, DateTimeKind.Utc);
+        var newStart = new DateTime(2026, 5, 28, 10, 0, 0, DateTimeKind.Utc);
+
+        _scheduleRepoMock.Setup(r => r.GetUpcomingByCustomerIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Schedule>
+            {
+                new()
+                {
+                    Id             = oldId,
+                    ProfessionalId = profId,
+                    StartDateTime  = oldStart,
+                    EndDateTime    = oldStart.AddMinutes(30),
+                    Status         = ScheduleStatus.Pending,
+                    Service        = new Service      { Id = svcId,  Name = "Corte", DurationMinutes = 30, Price = 40m, TenantId = TenantId },
+                    Professional   = new Professional { Id = profId, Name = "João",  Email = "joao@test.com", PasswordHash = "hash", TenantId = TenantId }
+                }
+            });
+        _scheduleServiceMock.Setup(s => s.CreateAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), svcId,
+                It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Schedule { ProfessionalId = profId, StartDateTime = newStart, EndDateTime = newStart.AddMinutes(30) });
+        _scheduleServiceMock.Setup(s => s.UpdateStatusAsync(oldId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _svc.DispatchAsync(FullRescheduleIntent(newStart), TenantId, SenderPhone);
+
+        Assert.Contains("remarcado", result);
+        Assert.Contains("Corte", result);
+        Assert.Contains("28/05/2026", result);
+        Assert.Contains("10:00", result);
+        _scheduleServiceMock.Verify(s => s.CreateAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), svcId,
+            It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(oldId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_RescheduleIntent_NewSlotConflicts_DoesNotCancelOldAndReturnsConflictMessage()
+    {
+        var oldId    = Guid.NewGuid();
+        var profId   = Guid.NewGuid();
+        var svcId    = Guid.NewGuid();
+        var oldStart = new DateTime(2026, 5, 26, 9, 0, 0, DateTimeKind.Utc);
+        var newStart = new DateTime(2026, 5, 28, 10, 0, 0, DateTimeKind.Utc);
+
+        _scheduleRepoMock.Setup(r => r.GetUpcomingByCustomerIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Schedule>
+            {
+                new()
+                {
+                    Id             = oldId,
+                    ProfessionalId = profId,
+                    StartDateTime  = oldStart,
+                    EndDateTime    = oldStart.AddMinutes(30),
+                    Service        = new Service      { Id = svcId,  Name = "Corte", DurationMinutes = 30, Price = 40m, TenantId = TenantId },
+                    Professional   = new Professional { Id = profId, Name = "João",  Email = "joao@test.com", PasswordHash = "hash", TenantId = TenantId }
+                }
+            });
+        var alternatives = new List<DateTime>
+        {
+            new(2026, 5, 28, 11, 0, 0, DateTimeKind.Utc),
+            new(2026, 5, 28, 14, 0, 0, DateTimeKind.Utc)
+        };
+        _scheduleServiceMock.Setup(s => s.CreateAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", alternatives));
+
+        var result = await _svc.DispatchAsync(FullRescheduleIntent(newStart), TenantId, SenderPhone);
+
+        Assert.Contains("ocupado", result);
+        Assert.Contains("11:00", result);
+        _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(
+            It.IsAny<Guid>(), It.IsAny<ScheduleStatus>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────
 
     private BotIntentDispatcherService BuildService() => new(
@@ -368,6 +496,18 @@ public sealed class BotIntentDispatcherServiceTests
         Intent = "schedule", Date = "2026-05-25", Time = "10:00",
         Service = "Corte", ReplyMessage = "Agendado!"
     };
+
+    private static GeminiIntentResponse FullRescheduleIntent(DateTime? newStart = null)
+    {
+        var dt = newStart ?? new DateTime(2026, 5, 28, 10, 0, 0, DateTimeKind.Utc);
+        return new GeminiIntentResponse
+        {
+            Intent       = "reschedule",
+            Date         = dt.ToString("yyyy-MM-dd"),
+            Time         = dt.ToString("HH:mm"),
+            ReplyMessage = "Remarcando..."
+        };
+    }
 
     private void SetupConflict(List<DateTime> alternatives)
         => _scheduleServiceMock.Setup(s => s.CreateAsync(

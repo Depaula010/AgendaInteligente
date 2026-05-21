@@ -6,8 +6,8 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
 
 ## 🚧 1. Etapa Atual em Desenvolvimento
 
-**Backend — B29 (próxima feature a definir)**
-- B28 (Cancelamento via WhatsApp) concluído. 178 testes passando.
+**Backend — B30+ (próxima feature a definir)**
+- B29 (Reagendamento via WhatsApp) concluído. 182 testes passando.
 - Próximo passo a definir: reengajamento automático, dashboard frontend ou outra feature do backlog.
 
 ---
@@ -199,6 +199,16 @@ Este documento serve para rastrear o progresso do desenvolvimento da plataforma,
     * Nome do serviço incluído na mensagem de confirmação: *"Seu agendamento de Corte do dia..."* (opcional — sem Service retorna mensagem genérica).
   * [x] **Novo teste:** `DispatchAsync_CancelIntent_HasConfirmedAppointment_CancelsAndReturnsConfirmation` — verifica que agendamento `Confirmed` é cancelado e a resposta contém serviço + data + hora.
   * [x] **Total: 178 testes — 178 aprovados, 0 falhas, 0 avisos.**
+
+* [x] **B29 — Reagendamento via WhatsApp:**
+  * [x] `"reschedule"` adicionado ao switch de intents em `BotIntentDispatcherService`.
+  * [x] `HandleRescheduleAsync` implementado com lógica "create first, cancel after" — se o novo slot estiver ocupado, o agendamento original é preservado e retorna a mensagem de conflito com alternativas.
+  * [x] Herança de serviço/profissional: se a IA não especificar, usa os dados do agendamento existente (caso comum: "quero remarcar para quinta às 10h" sem citar o serviço).
+  * [x] Override possível: se a IA indicar serviço ou profissional diferente, faz lookup no catálogo ativo e usa o novo; se não encontrado, mantém o do agendamento existente.
+  * [x] Mensagem de confirmação inclui nome do serviço + nova data/hora.
+  * [x] `"reschedule"` removido da Theory `DispatchAsync_WithNonActionableIntent_ReturnsAiReplyUnchanged` (agora é intent acionável).
+  * [x] **Novos testes (5 adicionados):** `RescheduleIntent_MissingDateTime_ReturnsAiReply`, `NoCustomer_ReturnsNotFoundMessage`, `NoUpcomingAppointment_ReturnsNotFoundMessage`, `HappyPath_CancelsOldCreatesNewReturnsConfirmation`, `NewSlotConflicts_DoesNotCancelOldAndReturnsConflictMessage`.
+  * [x] **Total: 182 testes — 182 aprovados, 0 falhas, 0 avisos.**
 
 * [x] **Setup Frontend PWA (React + Vite) e Telas de Autenticação:**
   * [x] Projeto React 19 + TypeScript inicializado com Vite 6 na pasta `front/`.
