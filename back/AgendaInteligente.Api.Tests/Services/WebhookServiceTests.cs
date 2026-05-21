@@ -1,5 +1,7 @@
 using AgendaInteligente.Api.Contracts.Requests.Webhook;
+using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Models.AI;
+using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services;
 using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,6 +16,7 @@ public sealed class WebhookServiceTests
     private readonly Mock<IAiOrchestratorService>       _aiMock;
     private readonly Mock<IBotIntentDispatcherService>  _dispatcherMock;
     private readonly Mock<IWhatsAppSendService>         _sendMock;
+    private readonly Mock<ICustomerRepository>          _customerMock;
     private readonly WebhookService                     _service;
 
     public WebhookServiceTests()
@@ -22,6 +25,7 @@ public sealed class WebhookServiceTests
         _aiMock         = new Mock<IAiOrchestratorService>();
         _dispatcherMock = new Mock<IBotIntentDispatcherService>();
         _sendMock       = new Mock<IWhatsAppSendService>();
+        _customerMock   = new Mock<ICustomerRepository>();
 
         // Defaults: mensagem nova (não duplicada), histórico vazio
         _historyMock.Setup(h => h.IsMessageDuplicateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -41,11 +45,18 @@ public sealed class WebhookServiceTests
         _sendMock.Setup(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
+        // Default B22: número desconhecido → cria Customer
+        _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Customer?)null);
+        _customerMock.Setup(r => r.CreateAsync(It.IsAny<Customer>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Customer c, CancellationToken _) => c);
+
         _service = new WebhookService(
             _historyMock.Object,
             _aiMock.Object,
             _dispatcherMock.Object,
             _sendMock.Object,
+            _customerMock.Object,
             new NullLogger<WebhookService>());
     }
 
@@ -175,6 +186,7 @@ public sealed class WebhookServiceTests
 
         await _service.ProcessWhatsAppMessageAsync(ValidRequest());
 
+        _customerMock.Verify(r => r.CreateAsync(It.IsAny<Customer>(), It.IsAny<CancellationToken>()), Times.Never);
         _aiMock.Verify(ai => ai.ProcessUserMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<List<MessageHistory>>()), Times.Never);
         _dispatcherMock.Verify(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         _sendMock.Verify(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -222,6 +234,50 @@ public sealed class WebhookServiceTests
         Assert.NotNull(passedHistory);
         Assert.Equal(2, passedHistory!.Count);
         Assert.Equal("Oi", passedHistory[0].Content);
+    }
+
+    // ── B22 — Registro automático de Customer ────────────────────────────────────
+
+    [Fact]
+    public async Task ProcessWhatsAppMessageAsync_WhenNewPhone_CreatesCustomerWithCorrectData()
+    {
+        var request = ValidRequest();
+        _customerMock.Setup(r => r.GetByPhoneAsync(request.SenderPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Customer?)null);
+
+        await _service.ProcessWhatsAppMessageAsync(request);
+
+        _customerMock.Verify(r => r.CreateAsync(
+            It.Is<Customer>(c =>
+                c.PhoneNumber == request.SenderPhone &&
+                c.Name        == request.SenderPhone &&
+                c.TenantId    == request.TenantId),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessWhatsAppMessageAsync_WhenExistingCustomer_DoesNotCallCreate()
+    {
+        var request = ValidRequest();
+        _customerMock.Setup(r => r.GetByPhoneAsync(request.SenderPhone, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Customer { Name = request.SenderPhone, PhoneNumber = request.SenderPhone, TenantId = request.TenantId });
+
+        await _service.ProcessWhatsAppMessageAsync(request);
+
+        _customerMock.Verify(r => r.CreateAsync(It.IsAny<Customer>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessWhatsAppMessageAsync_WhenNewPhone_ContinuesToProcessMessageAfterCreation()
+    {
+        // Garante que a criação do customer não interrompe o fluxo normal
+        _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Customer?)null);
+
+        await _service.ProcessWhatsAppMessageAsync(ValidRequest());
+
+        _aiMock.Verify(ai => ai.ProcessUserMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<List<MessageHistory>>()), Times.Once);
+        _sendMock.Verify(s => s.SendTextMessageAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

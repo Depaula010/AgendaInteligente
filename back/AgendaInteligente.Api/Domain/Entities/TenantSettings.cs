@@ -59,6 +59,15 @@ public sealed class TenantSettings : IMustHaveTenant
     /// </summary>
     public string? WhatsAppPhoneNumber { get; set; }
 
+    // ── Mensagens do Bot ───────────────────────────────────────────────────────
+    /// <summary>
+    /// Template da mensagem enviada ao cliente quando o horário solicitado está ocupado.
+    /// Use o placeholder <c>{alternatives}</c> para injetar os horários alternativos formatados.
+    /// Ex: "Esse horário está ocupado. Veja as opções:\n{alternatives}\nQual prefere?"
+    /// Quando nulo, o sistema usa o template padrão definido em <see cref="BotIntentDispatcherService"/>.
+    /// </summary>
+    public string? ConflictMessageTemplate { get; set; }
+
     // ── Configurações de IA (Gemini) ───────────────────────────────────────────
     /// <summary>
     /// Chave da API do Gemini. Se nula, o sistema pode tentar usar uma chave global (fallback).

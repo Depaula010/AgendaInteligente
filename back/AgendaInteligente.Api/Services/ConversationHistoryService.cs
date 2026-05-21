@@ -45,7 +45,7 @@ public sealed class ConversationHistoryService : IConversationHistoryService
             await _cache.SetStringAsync(
                 HistoryKey(tenantId, phone),
                 json,
-                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = HistoryTtl },
+                new DistributedCacheEntryOptions { SlidingExpiration = HistoryTtl },
                 ct);
         }
         catch (Exception ex)

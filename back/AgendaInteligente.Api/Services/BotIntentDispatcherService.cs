@@ -6,17 +6,25 @@ using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
-using System.Text;
 
 namespace AgendaInteligente.Api.Services;
 
 public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
 {
-    private readonly ICustomerRepository _customerRepo;
-    private readonly IServiceCatalogRepository _serviceRepo;
-    private readonly IProfessionalRepository _professionalRepo;
-    private readonly IScheduleRepository _scheduleRepo;
-    private readonly IScheduleService _scheduleService;
+    // Usado quando TenantSettings.ConflictMessageTemplate é nulo.
+    // O placeholder {alternatives} é substituído pela lista formatada de horários.
+    internal const string DefaultConflictTemplate =
+        "Esse horário está ocupado. Horários disponíveis:\n{alternatives}\nQual desses horários prefere?";
+
+    private const string NoAlternativesMessage =
+        "Esse horário está ocupado. Não encontrei horários disponíveis nos próximos dias. Tente outra data.";
+
+    private readonly ICustomerRepository         _customerRepo;
+    private readonly IServiceCatalogRepository   _serviceRepo;
+    private readonly IProfessionalRepository     _professionalRepo;
+    private readonly IScheduleRepository         _scheduleRepo;
+    private readonly IScheduleService            _scheduleService;
+    private readonly ITenantSettingsRepository   _settingsRepo;
     private readonly ILogger<BotIntentDispatcherService> _logger;
 
     public BotIntentDispatcherService(
@@ -25,14 +33,16 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         IProfessionalRepository professionalRepo,
         IScheduleRepository scheduleRepo,
         IScheduleService scheduleService,
+        ITenantSettingsRepository settingsRepo,
         ILogger<BotIntentDispatcherService> logger)
     {
-        _customerRepo    = customerRepo;
-        _serviceRepo     = serviceRepo;
+        _customerRepo     = customerRepo;
+        _serviceRepo      = serviceRepo;
         _professionalRepo = professionalRepo;
-        _scheduleRepo    = scheduleRepo;
-        _scheduleService = scheduleService;
-        _logger          = logger;
+        _scheduleRepo     = scheduleRepo;
+        _scheduleService  = scheduleService;
+        _settingsRepo     = settingsRepo;
+        _logger           = logger;
     }
 
     public Task<string> DispatchAsync(
@@ -127,7 +137,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
                 "Conflito de horário via bot. Phone={Phone}, Start={Start}. Alternativas={Count}",
                 senderPhone, startDateTime, ex.SuggestedAlternatives.Count);
 
-            return BuildConflictMessage(ex);
+            return await BuildConflictMessageAsync(ex, ct);
         }
         catch (Exception ex)
         {
@@ -164,20 +174,19 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
 
     // ── helpers ──────────────────────────────────────────────────────────────────
 
-    private static string BuildConflictMessage(ScheduleConflictException ex)
+    private async Task<string> BuildConflictMessageAsync(ScheduleConflictException ex, CancellationToken ct)
     {
-        var sb = new StringBuilder("Esse horário está ocupado. ");
-        if (ex.SuggestedAlternatives.Count > 0)
-        {
-            sb.AppendLine("Horários disponíveis:");
-            foreach (var alt in ex.SuggestedAlternatives)
-                sb.AppendLine($"• {alt:dd/MM/yyyy} às {alt:HH:mm}");
-            sb.Append("Qual desses horários prefere?");
-        }
-        else
-        {
-            sb.Append("Não encontrei horários disponíveis próximos. Tente outra data.");
-        }
-        return sb.ToString();
+        if (ex.SuggestedAlternatives.Count == 0)
+            return NoAlternativesMessage;
+
+        var settings = await _settingsRepo.GetAsync(ct);
+        var template = !string.IsNullOrWhiteSpace(settings?.ConflictMessageTemplate)
+            ? settings.ConflictMessageTemplate
+            : DefaultConflictTemplate;
+
+        var alternativesText = string.Join("\n",
+            ex.SuggestedAlternatives.Select(alt => $"• {alt:dd/MM/yyyy} às {alt:HH:mm}"));
+
+        return template.Replace("{alternatives}", alternativesText);
     }
 }

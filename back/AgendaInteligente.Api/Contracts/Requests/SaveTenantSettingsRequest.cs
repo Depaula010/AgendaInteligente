@@ -6,5 +6,10 @@ public record SaveTenantSettingsRequest(
     int ReminderLeadTimeHours,
     int ReengagementInactiveDays,
     string? BotDisplayName,
-    string? WhatsAppPhoneNumber
+    string? WhatsAppPhoneNumber,
+    /// <summary>
+    /// Template da mensagem de conflito. Use {alternatives} para injetar os horários disponíveis.
+    /// Deixe nulo para usar o template padrão do sistema.
+    /// </summary>
+    string? ConflictMessageTemplate = null
 );

@@ -110,6 +110,29 @@ public sealed class ConversationHistoryServiceTests
         Assert.Equal("oi", deserialized![0].Content);
     }
 
+    [Fact]
+    public async Task SaveHistoryAsync_UsesSlidingExpiration24h()
+    {
+        // Sessões de WhatsApp são assíncronas — SlidingExpiration garante que conversas
+        // ativas nunca expirem no meio; sessões abandonadas por >24h são limpas.
+        var tenantId = Guid.NewGuid();
+        DistributedCacheEntryOptions? capturedOptions = null;
+
+        _cacheMock.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<byte[]>(),
+                It.IsAny<DistributedCacheEntryOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, byte[], DistributedCacheEntryOptions, CancellationToken>((_, _, opts, _) => capturedOptions = opts)
+            .Returns(Task.CompletedTask);
+
+        await _service.SaveHistoryAsync(tenantId, "5511999999999", [new() { Role = "user", Content = "oi" }]);
+
+        Assert.NotNull(capturedOptions);
+        Assert.Equal(TimeSpan.FromHours(24), capturedOptions!.SlidingExpiration);
+        Assert.Null(capturedOptions.AbsoluteExpirationRelativeToNow);
+    }
+
     // ── IsMessageDuplicateAsync ──────────────────────────────────────────────────
 
     [Fact]

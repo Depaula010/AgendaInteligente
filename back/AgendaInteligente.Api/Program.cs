@@ -175,6 +175,7 @@ app.MapServiceCatalogEndpoints();
 app.MapScheduleEndpoints();
 app.MapTenantSettingsEndpoints();
 app.MapWebhookEndpoints();
+app.MapWhatsAppEndpoints();
 app.MapAiEndpoints();
 
 app.Run();

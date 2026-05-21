@@ -13,12 +13,13 @@ namespace AgendaInteligente.Api.Tests.Services;
 
 public sealed class BotIntentDispatcherServiceTests
 {
-    private readonly Mock<ICustomerRepository>      _customerMock;
-    private readonly Mock<IServiceCatalogRepository> _serviceMock;
-    private readonly Mock<IProfessionalRepository>  _professionalMock;
-    private readonly Mock<IScheduleRepository>      _scheduleRepoMock;
-    private readonly Mock<IScheduleService>         _scheduleServiceMock;
-    private readonly BotIntentDispatcherService     _svc;
+    private readonly Mock<ICustomerRepository>        _customerMock;
+    private readonly Mock<IServiceCatalogRepository>  _serviceMock;
+    private readonly Mock<IProfessionalRepository>    _professionalMock;
+    private readonly Mock<IScheduleRepository>        _scheduleRepoMock;
+    private readonly Mock<IScheduleService>           _scheduleServiceMock;
+    private readonly Mock<ITenantSettingsRepository>  _settingsMock;
+    private readonly BotIntentDispatcherService       _svc;
 
     private static readonly Guid   TenantId    = Guid.NewGuid();
     private const           string SenderPhone = "5511999999999";
@@ -30,8 +31,9 @@ public sealed class BotIntentDispatcherServiceTests
         _professionalMock    = new Mock<IProfessionalRepository>();
         _scheduleRepoMock    = new Mock<IScheduleRepository>();
         _scheduleServiceMock = new Mock<IScheduleService>();
+        _settingsMock        = new Mock<ITenantSettingsRepository>();
 
-        // Defaults: customer existente, serviço "Corte", profissional "João"
+        // Default: customer existente, serviço "Corte", profissional "João"
         _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Customer { Id = Guid.NewGuid(), Name = SenderPhone, PhoneNumber = SenderPhone, TenantId = TenantId });
 
@@ -46,13 +48,11 @@ public sealed class BotIntentDispatcherServiceTests
                 It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Schedule { ProfessionalId = Guid.NewGuid(), StartDateTime = DateTime.UtcNow.AddDays(1), EndDateTime = DateTime.UtcNow.AddDays(1).AddMinutes(30) });
 
-        _svc = new BotIntentDispatcherService(
-            _customerMock.Object,
-            _serviceMock.Object,
-            _professionalMock.Object,
-            _scheduleRepoMock.Object,
-            _scheduleServiceMock.Object,
-            new NullLogger<BotIntentDispatcherService>());
+        // Default: settings sem template personalizado (usa o default do serviço)
+        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TenantSettings?)null);
+
+        _svc = BuildService();
     }
 
     // ── intents sem ação de domínio ──────────────────────────────────────────────
@@ -132,7 +132,7 @@ public sealed class BotIntentDispatcherServiceTests
         var ai = new GeminiIntentResponse
         {
             Intent = "schedule", Date = "2026-05-25", Time = "10:00",
-            Service = "Massagem Relaxante",  // não está no catálogo mockado
+            Service = "Massagem Relaxante",
             ReplyMessage = "Não encontrei esse serviço."
         };
 
@@ -167,7 +167,6 @@ public sealed class BotIntentDispatcherServiceTests
     [Fact]
     public async Task DispatchAsync_ScheduleIntent_NoExistingCustomer_CreatesCustomerThenSchedule()
     {
-        // Arrange — cliente não existe ainda
         _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Customer?)null);
         _customerMock.Setup(r => r.CreateAsync(It.IsAny<Customer>(), It.IsAny<CancellationToken>()))
@@ -190,11 +189,15 @@ public sealed class BotIntentDispatcherServiceTests
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // ── schedule intent — conflito ───────────────────────────────────────────────
+    // ── schedule intent — conflito com template padrão ───────────────────────────
 
     [Fact]
-    public async Task DispatchAsync_ScheduleIntent_Conflict_ReturnsConflictMessageWithAlternatives()
+    public async Task DispatchAsync_ScheduleIntent_Conflict_UsesDefaultTemplateWhenSettingsNull()
     {
+        // Arrange — settings não configurado (null): deve usar DefaultConflictTemplate
+        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync((TenantSettings?)null);
+
         var alternatives = new List<DateTime>
         {
             new(2026, 5, 25, 11, 0, 0, DateTimeKind.Utc),
@@ -205,11 +208,7 @@ public sealed class BotIntentDispatcherServiceTests
                 It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", alternatives));
 
-        var ai = new GeminiIntentResponse
-        {
-            Intent = "schedule", Date = "2026-05-25", Time = "10:00",
-            Service = "Corte", ReplyMessage = "Agendado!"
-        };
+        var ai = FullScheduleIntent();
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
@@ -217,26 +216,61 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Contains("11:00", result);
         Assert.Contains("14:00", result);
         Assert.Contains("Qual desses horários prefere?", result);
+        // Garante que foi ao banco buscar settings
+        _settingsMock.Verify(r => r.GetAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task DispatchAsync_ScheduleIntent_ConflictWithNoAlternatives_ReturnsAlternativeNotFoundMessage()
+    public async Task DispatchAsync_ScheduleIntent_Conflict_UsesDefaultTemplateWhenTemplateIsNull()
     {
-        _scheduleServiceMock.Setup(s => s.CreateAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", new List<DateTime>()));
+        // Settings existe mas ConflictMessageTemplate não foi configurado
+        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TenantSettings { ConflictMessageTemplate = null });
 
-        var ai = new GeminiIntentResponse
+        var alternatives = new List<DateTime> { new(2026, 5, 25, 11, 0, 0, DateTimeKind.Utc) };
+        SetupConflict(alternatives);
+
+        var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
+
+        Assert.Contains(BotIntentDispatcherService.DefaultConflictTemplate
+            .Replace("{alternatives}", "• 25/05/2026 às 11:00").Substring(0, 30), result);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ScheduleIntent_Conflict_UsesCustomTemplateFromSettings()
+    {
+        // Tenant configurou seu próprio template
+        const string customTemplate = "Opa, esse horário tá cheio! 🔥 Veja as vagas:\n{alternatives}\nFica um?";
+        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TenantSettings { ConflictMessageTemplate = customTemplate });
+
+        var alternatives = new List<DateTime>
         {
-            Intent = "schedule", Date = "2026-05-25", Time = "10:00",
-            Service = "Corte", ReplyMessage = "Agendado!"
+            new(2026, 5, 25, 11, 0, 0, DateTimeKind.Utc),
+            new(2026, 5, 25, 14, 0, 0, DateTimeKind.Utc)
         };
+        SetupConflict(alternatives);
 
-        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+        var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
 
-        Assert.Contains("ocupado", result);
-        Assert.Contains("Tente outra data", result);
+        Assert.Contains("cheio! 🔥", result);
+        Assert.Contains("11:00", result);
+        Assert.Contains("14:00", result);
+        Assert.Contains("Fica um?", result);
+        // Template padrão NÃO deve aparecer
+        Assert.DoesNotContain("Qual desses horários prefere?", result);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ScheduleIntent_ConflictWithNoAlternatives_ReturnsNoAlternativesMessage()
+    {
+        SetupConflict(new List<DateTime>());
+
+        var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
+
+        Assert.Contains("não encontrei horários disponíveis", result, StringComparison.OrdinalIgnoreCase);
+        // Sem alternativas: não deve chamar settings
+        _settingsMock.Verify(r => r.GetAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ── cancel intent ────────────────────────────────────────────────────────────
@@ -247,9 +281,7 @@ public sealed class BotIntentDispatcherServiceTests
         _customerMock.Setup(r => r.GetByPhoneAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Customer?)null);
 
-        var ai = new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." };
-
-        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+        var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
         Assert.Contains("nenhum agendamento pendente", result);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(
@@ -262,9 +294,7 @@ public sealed class BotIntentDispatcherServiceTests
         _scheduleRepoMock.Setup(r => r.GetUpcomingByCustomerIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Schedule>());
 
-        var ai = new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." };
-
-        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+        var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
         Assert.Contains("nenhum agendamento pendente", result);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(
@@ -284,13 +314,34 @@ public sealed class BotIntentDispatcherServiceTests
         _scheduleServiceMock.Setup(s => s.UpdateStatusAsync(It.IsAny<Guid>(), It.IsAny<ScheduleStatus>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var ai = new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." };
-
-        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+        var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
         Assert.Contains("cancelado com sucesso", result);
         Assert.Contains("26/05/2026", result);
         Assert.Contains("09:00", result);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(scheduleId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    // ── helpers ──────────────────────────────────────────────────────────────────
+
+    private BotIntentDispatcherService BuildService() => new(
+        _customerMock.Object,
+        _serviceMock.Object,
+        _professionalMock.Object,
+        _scheduleRepoMock.Object,
+        _scheduleServiceMock.Object,
+        _settingsMock.Object,
+        new NullLogger<BotIntentDispatcherService>());
+
+    private static GeminiIntentResponse FullScheduleIntent() => new()
+    {
+        Intent = "schedule", Date = "2026-05-25", Time = "10:00",
+        Service = "Corte", ReplyMessage = "Agendado!"
+    };
+
+    private void SetupConflict(List<DateTime> alternatives)
+        => _scheduleServiceMock.Setup(s => s.CreateAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", alternatives));
 }

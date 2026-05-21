@@ -7,5 +7,6 @@ public record TenantSettingsResponse(
     int ReminderLeadTimeHours,
     int ReengagementInactiveDays,
     string? BotDisplayName,
-    string? WhatsAppPhoneNumber
+    string? WhatsAppPhoneNumber,
+    string? ConflictMessageTemplate
 );

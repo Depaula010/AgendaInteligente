@@ -23,7 +23,8 @@ public static class TenantSettingsEndpoints
             var response = new TenantSettingsResponse(
                 settings.Id, settings.WorkingHoursJson, settings.DaysOffJson,
                 settings.ReminderLeadTimeHours, settings.ReengagementInactiveDays,
-                settings.BotDisplayName, settings.WhatsAppPhoneNumber);
+                settings.BotDisplayName, settings.WhatsAppPhoneNumber,
+                settings.ConflictMessageTemplate);
 
             return Results.Ok(response);
         });
@@ -39,12 +40,13 @@ public static class TenantSettingsEndpoints
                 // Create
                 var newSettings = new TenantSettings
                 {
-                    WorkingHoursJson = request.WorkingHoursJson,
-                    DaysOffJson = request.DaysOffJson,
-                    ReminderLeadTimeHours = request.ReminderLeadTimeHours,
+                    WorkingHoursJson         = request.WorkingHoursJson,
+                    DaysOffJson              = request.DaysOffJson,
+                    ReminderLeadTimeHours    = request.ReminderLeadTimeHours,
                     ReengagementInactiveDays = request.ReengagementInactiveDays,
-                    BotDisplayName = request.BotDisplayName,
-                    WhatsAppPhoneNumber = request.WhatsAppPhoneNumber
+                    BotDisplayName           = request.BotDisplayName,
+                    WhatsAppPhoneNumber      = request.WhatsAppPhoneNumber,
+                    ConflictMessageTemplate  = request.ConflictMessageTemplate
                 };
                 
                 settings = await service.CreateAsync(newSettings, ct);
@@ -52,13 +54,14 @@ public static class TenantSettingsEndpoints
             else
             {
                 // Update
-                existingSettings.WorkingHoursJson = request.WorkingHoursJson;
-                existingSettings.DaysOffJson = request.DaysOffJson;
-                existingSettings.ReminderLeadTimeHours = request.ReminderLeadTimeHours;
+                existingSettings.WorkingHoursJson         = request.WorkingHoursJson;
+                existingSettings.DaysOffJson              = request.DaysOffJson;
+                existingSettings.ReminderLeadTimeHours    = request.ReminderLeadTimeHours;
                 existingSettings.ReengagementInactiveDays = request.ReengagementInactiveDays;
-                existingSettings.BotDisplayName = request.BotDisplayName;
-                existingSettings.WhatsAppPhoneNumber = request.WhatsAppPhoneNumber;
-                existingSettings.UpdatedAt = DateTime.UtcNow;
+                existingSettings.BotDisplayName           = request.BotDisplayName;
+                existingSettings.WhatsAppPhoneNumber      = request.WhatsAppPhoneNumber;
+                existingSettings.ConflictMessageTemplate  = request.ConflictMessageTemplate;
+                existingSettings.UpdatedAt                = DateTime.UtcNow;
 
                 settings = await service.UpdateAsync(existingSettings, ct);
             }
@@ -66,7 +69,8 @@ public static class TenantSettingsEndpoints
             var response = new TenantSettingsResponse(
                 settings.Id, settings.WorkingHoursJson, settings.DaysOffJson,
                 settings.ReminderLeadTimeHours, settings.ReengagementInactiveDays,
-                settings.BotDisplayName, settings.WhatsAppPhoneNumber);
+                settings.BotDisplayName, settings.WhatsAppPhoneNumber,
+                settings.ConflictMessageTemplate);
 
             return Results.Ok(response);
         });
