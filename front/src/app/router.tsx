@@ -1,27 +1,85 @@
+import { lazy, Suspense } from 'react'
+import type React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { LoginPage } from '@/features/auth/pages/Login'
-import { RegisterPage } from '@/features/auth/pages/Register'
+import { ROUTES } from '@/app/routes'
 import { ProtectedRoute } from '@/shared/components/ui/ProtectedRoute'
+import { GuestRoute } from '@/shared/components/ui/GuestRoute'
+import { LoadingScreen } from '@/shared/components/ui/LoadingScreen'
+import { DashboardLayout } from '@/shared/components/layouts/DashboardLayout'
 
-function DashboardPage() {
+// Lazy loading — cada página é um chunk separado
+const LoginPage = lazy(() =>
+  import('@/features/auth/pages/Login').then((m) => ({ default: m.LoginPage })),
+)
+const OnboardingPage = lazy(() =>
+  import('@/features/onboarding/pages/OnboardingPage').then((m) => ({
+    default: m.OnboardingPage,
+  })),
+)
+const AgendaPage = lazy(() =>
+  import('@/features/agenda/pages/AgendaPage').then((m) => ({ default: m.AgendaPage })),
+)
+const WhatsAppPage = lazy(() =>
+  import('@/features/whatsapp/pages/WhatsAppPage').then((m) => ({ default: m.WhatsAppPage })),
+)
+
+// Placeholder para rotas ainda não implementadas
+function ComingSoon({ label }: { label: string }) {
   return (
-    <div className="min-h-screen bg-surface-900 flex items-center justify-center">
-      <p className="text-white text-xl font-semibold">Dashboard em construção!</p>
+    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+      <p className="text-2xl mb-2">🚧</p>
+      <p className="text-white font-semibold">{label}</p>
+      <p className="text-sm text-slate-500 mt-1">Em breve</p>
     </div>
   )
 }
 
+const ClientesPage = lazy(
+  (): Promise<{ default: () => React.ReactElement }> =>
+    Promise.resolve({ default: () => <ComingSoon label="Clientes" /> }),
+)
+const EquipePage = lazy(
+  (): Promise<{ default: () => React.ReactElement }> =>
+    Promise.resolve({ default: () => <ComingSoon label="Equipe" /> }),
+)
+const ServicosPage = lazy(
+  (): Promise<{ default: () => React.ReactElement }> =>
+    Promise.resolve({ default: () => <ComingSoon label="Serviços" /> }),
+)
+const ConfiguracoesPage = lazy(
+  (): Promise<{ default: () => React.ReactElement }> =>
+    Promise.resolve({ default: () => <ComingSoon label="Configurações" /> }),
+)
+
 export function AppRouter() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/cadastro" element={<RegisterPage />} />
+    <Suspense fallback={<LoadingScreen />}>
+      <Routes>
+        {/* Rotas públicas — redirecionam para /dashboard se autenticado */}
+        <Route element={<GuestRoute />}>
+          <Route path={ROUTES.LOGIN} element={<LoginPage />} />
+          <Route path={ROUTES.REGISTER} element={<OnboardingPage />} />
+        </Route>
 
-      <Route element={<ProtectedRoute />}>
-        <Route path="/dashboard" element={<DashboardPage />} />
-      </Route>
+        {/* Rotas protegidas com DashboardLayout */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<DashboardLayout />}>
+            <Route
+              path={ROUTES.DASHBOARD}
+              element={<Navigate to={ROUTES.AGENDA} replace />}
+            />
+            <Route path={ROUTES.AGENDA} element={<AgendaPage />} />
+            <Route path={ROUTES.WHATSAPP} element={<WhatsAppPage />} />
+            <Route path={ROUTES.CLIENTES} element={<ClientesPage />} />
+            <Route path={ROUTES.EQUIPE} element={<EquipePage />} />
+            <Route path={ROUTES.SERVICOS} element={<ServicosPage />} />
+            <Route path={ROUTES.CONFIGURACOES} element={<ConfiguracoesPage />} />
+          </Route>
+        </Route>
 
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to={ROUTES.LOGIN} replace />} />
+      </Routes>
+    </Suspense>
   )
 }

@@ -46,4 +46,59 @@
   .divider {
     @apply h-px w-full bg-white/10;
   }
+
+  /* Form field base — padding tátil mobile (mín 48px de altura) */
+  .field-base {
+    @apply w-full rounded-xl border bg-white/5 backdrop-blur-sm
+           text-base text-white placeholder:text-slate-600
+           px-4 py-3.5 transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+           border-white/10 hover:border-white/20;
+  }
+
+  /* FullCalendar — dark theme ────────────────────────────────────────────── */
+  .fc-dark {
+    --fc-border-color: rgba(255,255,255,0.08);
+    --fc-today-bg-color: rgba(14,165,233,0.08);
+    --fc-now-indicator-color: #0ea5e9;
+    --fc-page-bg-color: transparent;
+    --fc-neutral-bg-color: rgba(255,255,255,0.03);
+    --fc-highlight-color: rgba(14,165,233,0.15);
+    --fc-non-business-color: rgba(255,255,255,0.02);
+    --fc-event-bg-color: #0ea5e9;
+    --fc-event-border-color: transparent;
+    --fc-event-text-color: #ffffff;
+    --fc-button-bg-color: #1e293b;
+    --fc-button-border-color: rgba(255,255,255,0.1);
+    --fc-button-text-color: #cbd5e1;
+    --fc-button-hover-bg-color: #334155;
+    --fc-button-hover-border-color: rgba(255,255,255,0.2);
+    --fc-button-active-bg-color: #0ea5e9;
+    --fc-button-active-border-color: #0ea5e9;
+    --fc-button-active-text-color: #ffffff;
+    --fc-list-event-hover-bg-color: rgba(255,255,255,0.05);
+    --fc-small-font-size: 0.8em;
+  }
+  .fc-dark .fc-toolbar-title { color: #f1f5f9; font-size: 1rem; font-weight: 700; }
+  .fc-dark .fc-col-header-cell-cushion { color: #94a3b8; text-decoration: none; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .fc-dark .fc-timegrid-slot-label-cushion { color: #64748b; font-size: 0.7rem; }
+  .fc-dark .fc-daygrid-day-number { color: #94a3b8; text-decoration: none; }
+  .fc-dark .fc-daygrid-day.fc-day-today .fc-daygrid-day-number { color: #38bdf8; font-weight: 700; }
+  .fc-dark .fc-button { border-radius: 0.5rem; font-size: 0.75rem; font-weight: 600; padding: 0.4rem 0.75rem; }
+  .fc-dark .fc-button:focus-visible { outline: 2px solid #0ea5e9; outline-offset: 2px; }
+  .fc-dark .fc-event { border-radius: 0.5rem; font-size: 0.75rem; padding: 1px 4px; }
+  .fc-dark .fc-event:hover { filter: brightness(1.1); }
+  .fc-dark .fc-timegrid-col.fc-day-today { background: var(--fc-today-bg-color); }
+  .fc-dark a { color: inherit; text-decoration: none; }
+
+  /* Scrollbar customizada — fina e sutil */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.700') transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-surface-700;
+  }
 }

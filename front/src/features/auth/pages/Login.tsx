@@ -9,6 +9,7 @@ import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
 import { authService } from '@/features/auth/services/auth.service'
 import { useAuthStore } from '@/features/auth/store/authStore'
+import { ROUTES } from '@/app/routes'
 
 interface FormState {
   email: string
@@ -40,7 +41,7 @@ function validate(form: FormState): FormErrors {
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const setToken = useAuthStore((s) => s.setToken)
+  const setTokens = useAuthStore((s) => s.setTokens)
 
   const [form, setForm] = useState<FormState>({ email: '', password: '' })
   const [errors, setErrors] = useState<FormErrors>({})
@@ -72,9 +73,9 @@ export function LoginPage() {
         password: form.password,
       })
 
-      setToken(response.token)
+      setTokens(response.token, response.refreshToken)
       toast.success('Bem-vindo de volta!', { id: toastId })
-      navigate('/dashboard', { replace: true })
+      navigate(ROUTES.DASHBOARD, { replace: true })
     } catch (err) {
       const message =
         axios.isAxiosError(err) && err.response?.data?.message

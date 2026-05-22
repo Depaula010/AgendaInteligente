@@ -5,20 +5,26 @@ import type { AuthUser, JwtClaims } from '@/features/auth/types/auth.types'
 
 interface AuthState {
   token: string | null
+  refreshToken: string | null
   user: AuthUser | null
   isAuthenticated: boolean
-  setToken: (token: string) => void
+  _hasHydrated: boolean
+
+  setTokens: (token: string, refreshToken?: string) => void
   logout: () => void
+  setHasHydrated: (value: boolean) => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
+      refreshToken: null,
       user: null,
       isAuthenticated: false,
+      _hasHydrated: false,
 
-      setToken: (token: string) => {
+      setTokens: (token: string, refreshToken?: string) => {
         try {
           const claims = jwtDecode<JwtClaims>(token)
           const user: AuthUser = {
@@ -28,24 +34,29 @@ export const useAuthStore = create<AuthState>()(
             tenantId: claims.tenantId,
             role: claims.role,
           }
-          set({ token, user, isAuthenticated: true })
+          set({ token, refreshToken: refreshToken ?? null, user, isAuthenticated: true })
         } catch {
-          set({ token: null, user: null, isAuthenticated: false })
+          set({ token: null, refreshToken: null, user: null, isAuthenticated: false })
         }
       },
 
       logout: () => {
-        set({ token: null, user: null, isAuthenticated: false })
+        set({ token: null, refreshToken: null, user: null, isAuthenticated: false })
+      },
+
+      setHasHydrated: (value: boolean) => {
+        set({ _hasHydrated: value })
       },
     }),
     {
       name: 'agenda-auth-storage',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ token: state.token }),
+      partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken }),
       onRehydrateStorage: () => (state) => {
         if (state?.token) {
-          state.setToken(state.token)
+          state.setTokens(state.token, state.refreshToken ?? undefined)
         }
+        state?.setHasHydrated(true)
       },
     },
   ),
