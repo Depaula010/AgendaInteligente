@@ -26,6 +26,8 @@ interface SelectedEvent {
   service: ServiceCatalogResponse | undefined
 }
 
+const isMobile = typeof window !== 'undefined' && window.innerWidth < 640
+
 export function AgendaPage() {
   const calendarRef = useRef<FullCalendar>(null)
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
@@ -113,12 +115,12 @@ export function AgendaPage() {
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-          initialView="timeGridWeek"
-          headerToolbar={{
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay',
-          }}
+          initialView={isMobile ? 'timeGridDay' : 'timeGridWeek'}
+          headerToolbar={
+            isMobile
+              ? { left: 'prev,next', center: 'title', right: 'timeGridDay,timeGridWeek' }
+              : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
+          }
           locale={ptBrLocale}
           events={events}
           selectable

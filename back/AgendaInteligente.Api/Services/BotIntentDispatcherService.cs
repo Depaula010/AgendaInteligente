@@ -25,6 +25,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
     private readonly IScheduleRepository         _scheduleRepo;
     private readonly IScheduleService            _scheduleService;
     private readonly ITenantSettingsRepository   _settingsRepo;
+    private readonly IWebPushService             _webPushService;
     private readonly ILogger<BotIntentDispatcherService> _logger;
 
     public BotIntentDispatcherService(
@@ -34,6 +35,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         IScheduleRepository scheduleRepo,
         IScheduleService scheduleService,
         ITenantSettingsRepository settingsRepo,
+        IWebPushService webPushService,
         ILogger<BotIntentDispatcherService> logger)
     {
         _customerRepo     = customerRepo;
@@ -42,6 +44,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         _scheduleRepo     = scheduleRepo;
         _scheduleService  = scheduleService;
         _settingsRepo     = settingsRepo;
+        _webPushService   = webPushService;
         _logger           = logger;
     }
 
@@ -129,6 +132,9 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
                 "Agendamento criado via bot. TenantId={TenantId}, Phone={Phone}, Service={Service}, Start={Start}",
                 tenantId, senderPhone, service.Name, startDateTime);
 
+            var pushBody = $"{customer.Name} · {service.Name} · {startDateTime:dd/MM} às {startDateTime:HH:mm}";
+            await _webPushService.NotifyAsync(professional.Id, "Novo agendamento", pushBody, ct);
+
             return aiResponse.ReplyMessage;
         }
         catch (ScheduleConflictException ex)
@@ -168,6 +174,9 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         _logger.LogInformation(
             "Agendamento cancelado via bot. ScheduleId={Id}, TenantId={TenantId}, Phone={Phone}",
             next.Id, tenantId, senderPhone);
+
+        var cancelBody = $"{customer.Name}{(serviceName is not null ? $" · {serviceName}" : "")} · {next.StartDateTime:dd/MM} às {next.StartDateTime:HH:mm}";
+        await _webPushService.NotifyAsync(next.ProfessionalId, "Agendamento cancelado", cancelBody, ct);
 
         return $"Seu agendamento{(serviceName is not null ? $" de {serviceName}" : "")} do dia " +
                $"{next.StartDateTime:dd/MM/yyyy} às {next.StartDateTime:HH:mm} foi cancelado com sucesso! " +

@@ -8,11 +8,15 @@ import {
   MessageCircle,
   UserCog,
   LogOut,
+  Bell,
+  BellOff,
 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
 import { ROUTES } from '@/app/routes'
 import { useAuthStore } from '@/features/auth/store/authStore'
 import { whatsappService } from '@/features/whatsapp/services/whatsapp.service'
+import { pushService } from '@/features/notificacoes/services/push.service'
+import { usePushNotifications } from '@/shared/hooks/usePushNotifications'
 
 const NAV_ITEMS = [
   { label: 'Agenda',        icon: CalendarDays, to: ROUTES.AGENDA,        whatsapp: false },
@@ -78,6 +82,14 @@ export function DashboardLayout() {
   })
   const whatsappDisconnected = whatsappStatus !== undefined && !whatsappStatus.isConnected
 
+  const { data: vapidPublicKey } = useQuery({
+    queryKey: ['vapid-public-key'],
+    queryFn: pushService.getVapidPublicKey,
+    staleTime: Infinity,
+    enabled: typeof window !== 'undefined' && 'PushManager' in window,
+  })
+  const { isSupported, isSubscribed, isLoading, toggle } = usePushNotifications(vapidPublicKey)
+
   const currentPage = NAV_ITEMS.find(
     (item) => pathname === item.to || pathname.startsWith(item.to + '/'),
   )
@@ -112,7 +124,7 @@ export function DashboardLayout() {
           ))}
         </nav>
 
-        {/* User + Logout */}
+        {/* User + Notificações + Logout */}
         <div className="p-3 border-t border-white/5">
           <div className="flex items-center gap-3 px-3 py-2 mb-1">
             <div className="h-7 w-7 rounded-full bg-brand-500/20 flex items-center justify-center flex-shrink-0">
@@ -124,6 +136,21 @@ export function DashboardLayout() {
                 {user?.role === 'Owner' ? 'Proprietário' : 'Profissional'}
               </p>
             </div>
+            {isSupported && (
+              <button
+                type="button"
+                onClick={toggle}
+                disabled={isLoading}
+                title={isSubscribed ? 'Desativar notificações' : 'Ativar notificações'}
+                className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                {isSubscribed ? (
+                  <Bell className="h-4 w-4 text-brand-400" aria-hidden="true" />
+                ) : (
+                  <BellOff className="h-4 w-4" aria-hidden="true" />
+                )}
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -146,8 +173,25 @@ export function DashboardLayout() {
               {currentPage?.label ?? 'Dashboard'}
             </span>
           </div>
-          <div className="h-7 w-7 rounded-full bg-brand-500/20 flex items-center justify-center">
-            <span className="text-xs font-semibold text-brand-400">{userInitial}</span>
+          <div className="flex items-center gap-2">
+            {isSupported && (
+              <button
+                type="button"
+                onClick={toggle}
+                disabled={isLoading}
+                title={isSubscribed ? 'Desativar notificações' : 'Ativar notificações'}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+              >
+                {isSubscribed ? (
+                  <Bell className="h-4 w-4 text-brand-400" aria-hidden="true" />
+                ) : (
+                  <BellOff className="h-4 w-4" aria-hidden="true" />
+                )}
+              </button>
+            )}
+            <div className="h-7 w-7 rounded-full bg-brand-500/20 flex items-center justify-center">
+              <span className="text-xs font-semibold text-brand-400">{userInitial}</span>
+            </div>
           </div>
         </header>
 

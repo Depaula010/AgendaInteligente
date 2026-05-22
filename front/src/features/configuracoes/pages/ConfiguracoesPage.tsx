@@ -228,34 +228,35 @@ export function ConfiguracoesPage() {
             {days.map((day, i) => (
               <div
                 key={i}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
+                className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl px-3 py-2.5 transition-colors ${
                   day.enabled ? 'bg-white/5' : 'opacity-50'
                 }`}
               >
-                {/* Toggle */}
-                <input
-                  type="checkbox"
-                  id={`day-${i}`}
-                  checked={day.enabled}
-                  disabled={!isOwner}
-                  onChange={(e) =>
-                    setDays((prev) =>
-                      prev.map((d, idx) => (idx === i ? { ...d, enabled: e.target.checked } : d)),
-                    )
-                  }
-                  className="h-4 w-4 rounded accent-brand-500 flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                />
-                {/* Day name */}
-                <label
-                  htmlFor={`day-${i}`}
-                  className="w-20 text-sm font-medium text-slate-300 cursor-pointer select-none"
-                >
-                  {DAY_NAMES[i]}
-                </label>
+                {/* Toggle + day name */}
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id={`day-${i}`}
+                    checked={day.enabled}
+                    disabled={!isOwner}
+                    onChange={(e) =>
+                      setDays((prev) =>
+                        prev.map((d, idx) => (idx === i ? { ...d, enabled: e.target.checked } : d)),
+                      )
+                    }
+                    className="h-4 w-4 rounded accent-brand-500 flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <label
+                    htmlFor={`day-${i}`}
+                    className="w-20 text-sm font-medium text-slate-300 cursor-pointer select-none"
+                  >
+                    {DAY_NAMES[i]}
+                  </label>
+                </div>
 
                 {/* Times — only show when enabled */}
                 {day.enabled && (
-                  <div className="flex items-center gap-2 flex-1">
+                  <div className="flex items-center gap-2 pl-7 sm:pl-0 sm:flex-1">
                     <input
                       type="time"
                       value={day.openTime}
@@ -380,7 +381,7 @@ export function ConfiguracoesPage() {
 
         {/* ── Lembretes automáticos ── */}
         <SectionCard icon={Clock} title="Lembretes automáticos">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               {...register('reminderLeadTimeHours', { valueAsNumber: true })}
               id="reminderLeadTimeHours"

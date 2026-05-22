@@ -1,6 +1,7 @@
 import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AppRouter } from '@/app/router'
+import { OfflineBanner } from '@/shared/components/ui/OfflineBanner'
 
 export function App() {
   return (
@@ -28,6 +29,7 @@ export function App() {
         }}
       />
       <AppRouter />
+      <OfflineBanner />
     </BrowserRouter>
   )
 }

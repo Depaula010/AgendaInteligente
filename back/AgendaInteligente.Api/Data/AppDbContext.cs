@@ -24,6 +24,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<Schedule> Schedules => Set<Schedule>();
     public DbSet<TenantSettings> TenantSettings => Set<TenantSettings>();
     public DbSet<Waitlist> Waitlists => Set<Waitlist>();
+    public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
 
     // ── Model Configuration ────────────────────────────────────────────────────
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -67,6 +68,11 @@ public sealed class AppDbContext : DbContext
                 e.TenantId == _tenantProvider.CurrentTenantId.Value);
 
         modelBuilder.Entity<Waitlist>()
+            .HasQueryFilter(e =>
+                !_tenantProvider.CurrentTenantId.HasValue ||
+                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+
+        modelBuilder.Entity<PushSubscription>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
                 e.TenantId == _tenantProvider.CurrentTenantId.Value);

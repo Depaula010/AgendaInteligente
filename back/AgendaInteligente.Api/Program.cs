@@ -90,6 +90,11 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IBotIntentDispatcherService, BotIntentDispatcherService>();
 
+// Web Push Notifications
+builder.Services.Configure<VapidOptions>(builder.Configuration.GetSection(VapidOptions.SectionName));
+builder.Services.AddScoped<IPushSubscriptionRepository, PushSubscriptionRepository>();
+builder.Services.AddScoped<IWebPushService, WebPushService>();
+
 // Conversation History (Redis)
 builder.Services.AddScoped<IConversationHistoryService, ConversationHistoryService>();
 
@@ -188,6 +193,7 @@ app.MapTenantSettingsEndpoints();
 app.MapWebhookEndpoints();
 app.MapWhatsAppEndpoints();
 app.MapAiEndpoints();
+app.MapPushEndpoints();
 
 app.Run();
 
