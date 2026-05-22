@@ -4,11 +4,11 @@ import { Mail, Lock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import axios from 'axios'
 
-import { AuthLayout } from '@/components/layouts/AuthLayout'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { authService } from '@/services/auth.service'
-import { useAuthStore } from '@/store/authStore'
+import { AuthLayout } from '@/shared/components/layouts/AuthLayout'
+import { Button } from '@/shared/components/ui/Button'
+import { Input } from '@/shared/components/ui/Input'
+import { authService } from '@/features/auth/services/auth.service'
+import { useAuthStore } from '@/features/auth/store/authStore'
 
 interface FormState {
   email: string
@@ -38,10 +38,6 @@ function validate(form: FormState): FormErrors {
   return errors
 }
 
-/**
- * LoginPage — tela de autenticação do profissional.
- * Mobile-first, touch-friendly, com validação client-side e feedbacks visuais.
- */
 export function LoginPage() {
   const navigate = useNavigate()
   const setToken = useAuthStore((s) => s.setToken)
@@ -53,7 +49,6 @@ export function LoginPage() {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target
     setForm((prev) => ({ ...prev, [name]: value }))
-    // Limpa o erro do campo ao digitar
     if (errors[name as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [name]: undefined }))
     }
@@ -78,7 +73,7 @@ export function LoginPage() {
       })
 
       setToken(response.token)
-      toast.success('Bem-vindo de volta! 👋', { id: toastId })
+      toast.success('Bem-vindo de volta!', { id: toastId })
       navigate('/dashboard', { replace: true })
     } catch (err) {
       const message =
@@ -95,23 +90,14 @@ export function LoginPage() {
   return (
     <AuthLayout>
       <div className="flex flex-col gap-6">
-        {/* Cabeçalho do card */}
         <div>
-          <h2 className="font-display text-xl font-bold text-white">
-            Entrar na sua conta
-          </h2>
+          <h2 className="font-display text-xl font-bold text-white">Entrar na sua conta</h2>
           <p className="text-sm text-slate-500 mt-1">
             Acesse o painel de controle da sua agenda.
           </p>
         </div>
 
-        {/* Formulário */}
-        <form
-          id="login-form"
-          onSubmit={handleSubmit}
-          className="flex flex-col gap-4"
-          noValidate
-        >
+        <form id="login-form" onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
           <Input
             id="login-email"
             name="email"
@@ -139,7 +125,6 @@ export function LoginPage() {
             error={errors.password}
           />
 
-          {/* Esqueci minha senha */}
           <div className="flex justify-end -mt-2">
             <Link
               to="/esqueci-senha"
@@ -149,24 +134,17 @@ export function LoginPage() {
             </Link>
           </div>
 
-          <Button
-            type="submit"
-            isLoading={isLoading}
-            className="mt-2"
-            aria-label="Entrar na conta"
-          >
+          <Button type="submit" isLoading={isLoading} className="mt-2" aria-label="Entrar na conta">
             Entrar
           </Button>
         </form>
 
-        {/* Divisor */}
         <div className="relative flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-xs text-slate-600">ou</span>
           <div className="flex-1 h-px bg-white/10" />
         </div>
 
-        {/* Link para cadastro */}
         <p className="text-center text-sm text-slate-500">
           Ainda não tem uma conta?{' '}
           <Link

@@ -1,5 +1,3 @@
-// ── Autenticação ──────────────────────────────────────────────────────────────
-
 export interface LoginRequest {
   email: string
   password: string
@@ -19,18 +17,16 @@ export interface AuthResponse {
   expiresIn: number
 }
 
-// Claims extraídos do JWT após decode
 export interface JwtClaims {
-  sub: string       // ProfessionalId (Guid)
+  sub: string
   email: string
-  tenantId: string  // TenantId (Guid) — isolamento SaaS
+  tenantId: string
   role: 'Owner' | 'Staff'
   name: string
   exp: number
   iat: number
 }
 
-// Estado do usuário autenticado (store)
 export interface AuthUser {
   id: string
   email: string

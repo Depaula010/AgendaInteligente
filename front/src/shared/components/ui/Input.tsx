@@ -1,6 +1,6 @@
 import { forwardRef, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { cn } from '@/utils/cn'
+import { cn } from '@/shared/utils/cn'
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -9,10 +9,6 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   leftIcon?: React.ReactNode
 }
 
-/**
- * Input — campo de formulário premium.
- * Font-size mínimo de 16px para evitar zoom automático em iOS.
- */
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, hint, leftIcon, className, type, id, ...props }, ref) => {
     const [showPassword, setShowPassword] = useState(false)
@@ -22,16 +18,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label
-            htmlFor={id}
-            className="text-sm font-medium text-slate-300"
-          >
+          <label htmlFor={id} className="text-sm font-medium text-slate-300">
             {label}
           </label>
         )}
 
         <div className="relative">
-          {/* Ícone esquerdo */}
           {leftIcon && (
             <span
               className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
@@ -46,19 +38,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             id={id}
             type={inputType}
             className={cn(
-              // Base — glassmorphism sutil
               'w-full rounded-xl border bg-white/5 backdrop-blur-sm',
               'text-base text-white placeholder:text-slate-600',
               'px-4 py-3.5',
               'transition-all duration-200',
               'focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent',
-              // Estado normal
               !error && 'border-white/10 hover:border-white/20',
-              // Estado de erro
               error && 'border-red-500/60 focus:ring-red-500',
-              // Padding extra se tiver ícone esquerdo
               leftIcon && 'pl-11',
-              // Padding para ícone direito (reveal senha)
               isPassword && 'pr-12',
               className,
             )}
@@ -67,7 +54,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
 
-          {/* Toggle mostrar/esconder senha */}
           {isPassword && (
             <button
               type="button"
@@ -76,23 +62,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
               aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
             >
-              {showPassword ? (
-                <EyeOff className="h-5 w-5" />
-              ) : (
-                <Eye className="h-5 w-5" />
-              )}
+              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           )}
         </div>
 
-        {/* Mensagem de erro */}
         {error && (
           <p id={`${id}-error`} className="text-sm text-red-400" role="alert">
             {error}
           </p>
         )}
 
-        {/* Hint */}
         {!error && hint && (
           <p id={`${id}-hint`} className="text-xs text-slate-500">
             {hint}

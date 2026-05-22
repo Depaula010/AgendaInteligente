@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useAuthStore } from '@/store/authStore'
+import { useAuthStore } from '@/features/auth/store/authStore'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
 
@@ -9,7 +9,6 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// ── Request Interceptor: injeta o JWT em cada requisição ──────────────────────
 api.interceptors.request.use(
   (config) => {
     const token = useAuthStore.getState().token
@@ -21,7 +20,6 @@ api.interceptors.request.use(
   (error) => Promise.reject(error),
 )
 
-// ── Response Interceptor: trata 401/403 fazendo logout ───────────────────────
 api.interceptors.response.use(
   (response) => response,
   (error) => {

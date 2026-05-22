@@ -13,6 +13,9 @@ build/
 .cache/
 *.tsbuildinfo
 
+# ── TypeScript composite build output (gerado por tsconfig.node.json) ─────────
+vite.config.d.ts
+
 # ── Variáveis de Ambiente ─────────────────────────────────────────────────────
 # Nunca commitar segredos. Use .env.example como template.
 .env

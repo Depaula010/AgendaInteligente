@@ -1,26 +1,15 @@
-import { cn } from '@/utils/cn'
+import { cn } from '@/shared/utils/cn'
 
 interface SkeletonProps {
   className?: string
 }
 
-/**
- * Skeleton — placeholder animado para carregamentos assíncronos.
- * Substitui conteúdo enquanto dados estão sendo buscados.
- */
 export function Skeleton({ className }: SkeletonProps) {
   return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        'rounded-lg bg-white/5 animate-pulse-slow',
-        className,
-      )}
-    />
+    <div aria-hidden="true" className={cn('rounded-lg bg-white/5 animate-pulse-slow', className)} />
   )
 }
 
-/** Skeleton pré-montado para um campo de formulário */
 export function SkeletonInput() {
   return (
     <div className="flex flex-col gap-1.5">
@@ -30,7 +19,6 @@ export function SkeletonInput() {
   )
 }
 
-/** Skeleton pré-montado para um card de agendamento */
 export function SkeletonCard() {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4 flex flex-col gap-3">

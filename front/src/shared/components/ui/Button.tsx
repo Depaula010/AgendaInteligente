@@ -1,6 +1,6 @@
 import { forwardRef } from 'react'
 import { Loader2 } from 'lucide-react'
-import { cn } from '@/utils/cn'
+import { cn } from '@/shared/utils/cn'
 
 type Variant = 'primary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md' | 'lg'
@@ -37,24 +37,8 @@ const sizeStyles: Record<Size, string> = {
   lg: 'h-14 px-8 text-lg',
 }
 
-/**
- * Button — componente premium touch-friendly.
- * Altura mínima de 48px para áreas de toque acessíveis em mobile (WCAG 2.5.5).
- */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    {
-      variant = 'primary',
-      size = 'md',
-      isLoading = false,
-      leftIcon,
-      children,
-      className,
-      disabled,
-      ...props
-    },
-    ref,
-  ) => {
+  ({ variant = 'primary', size = 'md', isLoading = false, leftIcon, children, className, disabled, ...props }, ref) => {
     const isDisabled = disabled || isLoading
 
     return (
@@ -62,13 +46,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={isDisabled}
         className={cn(
-          // Base
           'relative inline-flex items-center justify-center gap-2',
           'w-full rounded-xl font-semibold',
           'transition-all duration-200 ease-out',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-900',
           'select-none cursor-pointer disabled:cursor-not-allowed',
-          // Variante e tamanho
           variantStyles[variant],
           sizeStyles[size],
           className,

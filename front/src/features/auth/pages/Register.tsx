@@ -4,11 +4,11 @@ import { Mail, Lock, User, Briefcase } from 'lucide-react'
 import toast from 'react-hot-toast'
 import axios from 'axios'
 
-import { AuthLayout } from '@/components/layouts/AuthLayout'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { authService } from '@/services/auth.service'
-import { useAuthStore } from '@/store/authStore'
+import { AuthLayout } from '@/shared/components/layouts/AuthLayout'
+import { Button } from '@/shared/components/ui/Button'
+import { Input } from '@/shared/components/ui/Input'
+import { authService } from '@/features/auth/services/auth.service'
+import { useAuthStore } from '@/features/auth/store/authStore'
 
 interface FormState {
   businessName: string
@@ -29,13 +29,8 @@ interface FormErrors {
 function validate(form: FormState): FormErrors {
   const errors: FormErrors = {}
 
-  if (!form.businessName.trim()) {
-    errors.businessName = 'Nome do estabelecimento é obrigatório.'
-  }
-
-  if (!form.ownerName.trim()) {
-    errors.ownerName = 'Seu nome é obrigatório.'
-  }
+  if (!form.businessName.trim()) errors.businessName = 'Nome do estabelecimento é obrigatório.'
+  if (!form.ownerName.trim()) errors.ownerName = 'Seu nome é obrigatório.'
 
   if (!form.email) {
     errors.email = 'E-mail é obrigatório.'
@@ -58,10 +53,6 @@ function validate(form: FormState): FormErrors {
   return errors
 }
 
-/**
- * RegisterPage — cadastro do profissional / estabelecimento (Owner).
- * Cria o tenant e o usuário principal simultaneamente via API.
- */
 export function RegisterPage() {
   const navigate = useNavigate()
   const setToken = useAuthStore((s) => s.setToken)
@@ -106,7 +97,7 @@ export function RegisterPage() {
       })
 
       setToken(response.token)
-      toast.success('Conta criada com sucesso! Bem-vindo! 🎉', { id: toastId })
+      toast.success('Conta criada com sucesso! Bem-vindo!', { id: toastId })
       navigate('/dashboard', { replace: true })
     } catch (err) {
       const message =
@@ -123,17 +114,13 @@ export function RegisterPage() {
   return (
     <AuthLayout>
       <div className="flex flex-col gap-5">
-        {/* Cabeçalho do card */}
         <div>
-          <h2 className="font-display text-xl font-bold text-white">
-            Criar sua conta
-          </h2>
+          <h2 className="font-display text-xl font-bold text-white">Criar sua conta</h2>
           <p className="text-sm text-slate-500 mt-1">
             Configure sua agenda em menos de 2 minutos.
           </p>
         </div>
 
-        {/* Formulário */}
         <form
           id="register-form"
           onSubmit={handleSubmit}
@@ -217,7 +204,6 @@ export function RegisterPage() {
           </Button>
         </form>
 
-        {/* Termos */}
         <p className="text-center text-xs text-slate-600">
           Ao criar sua conta, você concorda com nossos{' '}
           <a href="#" className="text-brand-500 hover:text-brand-400 transition-colors">
@@ -230,14 +216,12 @@ export function RegisterPage() {
           .
         </p>
 
-        {/* Divisor */}
         <div className="relative flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-xs text-slate-600">ou</span>
           <div className="flex-1 h-px bg-white/10" />
         </div>
 
-        {/* Link para login */}
         <p className="text-center text-sm text-slate-500">
           Já tem uma conta?{' '}
           <Link
