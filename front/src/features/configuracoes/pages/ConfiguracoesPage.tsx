@@ -3,9 +3,10 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bot, BrainCircuit, Clock, Info, Loader2, Lock, Settings, X } from 'lucide-react'
+import { Bot, BrainCircuit, Clock, Info, Lock, Settings, X } from 'lucide-react'
 import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
+import { Skeleton } from '@/shared/components/ui/Skeleton'
 import { appToast } from '@/shared/lib/toast'
 import { useAuthStore } from '@/features/auth/store/authStore'
 import { configuracoesService } from '@/features/configuracoes/services/configuracoes.service'
@@ -191,8 +192,32 @@ export function ConfiguracoesPage() {
   // ── Loading ──
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <Loader2 className="h-8 w-8 text-brand-400 animate-spin" aria-label="Carregando" />
+      <div className="p-4 md:p-6 max-w-2xl mx-auto" aria-label="Carregando configurações">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-7 w-36" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-9 w-9 rounded-xl" />
+        </div>
+        <div className="flex flex-col gap-5">
+          {[
+            [2, 'w-44'], [1, 'w-36'], [2, 'w-52'], [2, 'w-40'],
+          ].map(([lines, titleW], i) => (
+            <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className={`h-3 ${titleW as string}`} />
+              </div>
+              <div className="flex flex-col gap-3">
+                {Array.from({ length: lines as number }).map((_, j) => (
+                  <Skeleton key={j} className="h-[3.25rem] w-full rounded-xl" />
+                ))}
+              </div>
+            </div>
+          ))}
+          <Skeleton className="h-12 w-full rounded-xl" />
+        </div>
       </div>
     )
   }

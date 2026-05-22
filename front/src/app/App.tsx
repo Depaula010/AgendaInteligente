@@ -12,9 +12,9 @@ export function App() {
         toastOptions={{
           duration: 4000,
           style: {
-            background: '#1e293b',
-            color: '#f1f5f9',
-            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'var(--toast-bg)',
+            color: 'var(--toast-text)',
+            border: '1px solid var(--toast-border)',
             borderRadius: '12px',
             fontSize: '14px',
             fontFamily: 'Inter, sans-serif',

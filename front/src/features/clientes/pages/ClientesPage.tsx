@@ -4,6 +4,7 @@ import { ChevronRight, Loader2, Search, Users } from 'lucide-react'
 import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
 import { Badge } from '@/shared/components/ui/Badge'
+import { Skeleton } from '@/shared/components/ui/Skeleton'
 import { clientesService } from '@/features/clientes/services/clientes.service'
 import { CustomerDetailModal } from '@/features/clientes/components/CustomerDetailModal'
 import type { CustomerResponse } from '@/features/agenda/types/agenda.types'
@@ -119,9 +120,16 @@ export function ClientesPage() {
 
       {/* List */}
       {isLoading ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" aria-label="Carregando clientes">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-[72px] rounded-xl bg-white/5 animate-pulse" />
+            <div key={i} className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3.5">
+              <Skeleton className="h-10 w-10 rounded-xl flex-shrink-0" />
+              <div className="flex-1 flex flex-col gap-2 min-w-0">
+                <Skeleton className="h-3.5 w-2/5" />
+                <Skeleton className="h-3 w-3/5" />
+                <Skeleton className="h-3 w-1/4" />
+              </div>
+            </div>
           ))}
         </div>
       ) : customers.length === 0 ? (

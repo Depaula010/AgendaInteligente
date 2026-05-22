@@ -30,6 +30,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Aplica tema antes do React para evitar flash de cor incorreta -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('agenda-theme') || 'dark'
+        document.documentElement.classList.add(t)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -6,8 +6,8 @@ import interactionPlugin from '@fullcalendar/interaction'
 import type { DateSelectArg, EventClickArg, DatesSetArg } from '@fullcalendar/core'
 import ptBrLocale from '@fullcalendar/core/locales/pt-br'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
+import { Skeleton } from '@/shared/components/ui/Skeleton'
 import { agendaService } from '@/features/agenda/services/agenda.service'
 import {
   ScheduleStatus,
@@ -101,9 +101,10 @@ export function AgendaPage() {
     <div className="flex flex-col h-full">
       {/* Loading indicator */}
       {loadingSchedules && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-brand-500/10 border-b border-brand-500/20">
-          <Loader2 className="h-3 w-3 text-brand-400 animate-spin" aria-hidden="true" />
-          <span className="text-xs text-brand-400">Carregando agendamentos...</span>
+        <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-3" aria-label="Carregando agendamentos">
+          <Skeleton className="h-2 w-2 rounded-full" />
+          <Skeleton className="h-2 w-36 rounded-full" />
+          <Skeleton className="h-2 w-20 rounded-full" />
         </div>
       )}
 

@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Tema: CSS variables ─────────────────────────────────────────────────── */
+
+/* Dark (padrão) */
+.dark {
+  --surface-900: 15 23 42;
+  --surface-800: 30 41 59;
+  --surface-700: 51 65 85;
+  --surface-600: 71 85 105;
+  --surface-500: 100 116 139;
+  /* Toast */
+  --toast-bg: #1e293b;
+  --toast-text: #f1f5f9;
+  --toast-border: rgba(255, 255, 255, 0.1);
+}
+
+/* Light */
+.light {
+  --surface-900: 241 245 249;
+  --surface-800: 255 255 255;
+  --surface-700: 226 232 240;
+  --surface-600: 203 213 225;
+  --surface-500: 148 163 184;
+  /* Toast */
+  --toast-bg: #ffffff;
+  --toast-text: #0f172a;
+  --toast-border: rgba(0, 0, 0, 0.1);
+}
+
 /* ── Base ────────────────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after {
@@ -101,4 +129,65 @@
   .custom-scrollbar::-webkit-scrollbar-thumb {
     @apply rounded-full bg-surface-700;
   }
+}
+
+/* ── Light mode overrides ────────────────────────────────────────────────── */
+@layer utilities {
+  /* Texto */
+  .light .text-white         { color: #0f172a; }
+  .light .text-slate-100     { color: #1e293b; }
+  .light .text-slate-300     { color: #334155; }
+  .light .hover\:text-white:hover { color: #0f172a; }
+
+  /* Glassmorphism backgrounds */
+  .light .bg-white\/5        { background-color: rgb(0 0 0 / 0.04); }
+  .light .bg-white\/8        { background-color: rgb(0 0 0 / 0.05); }
+  .light .bg-white\/10       { background-color: rgb(0 0 0 / 0.07); }
+  .light .hover\:bg-white\/5:hover  { background-color: rgb(0 0 0 / 0.04); }
+  .light .hover\:bg-white\/8:hover  { background-color: rgb(0 0 0 / 0.05); }
+  .light .hover\:bg-white\/10:hover { background-color: rgb(0 0 0 / 0.07); }
+  .light .active\:bg-white\/5:active { background-color: rgb(0 0 0 / 0.04); }
+
+  /* Glassmorphism borders */
+  .light .border-white\/5    { border-color: rgb(0 0 0 / 0.06); }
+  .light .border-white\/10   { border-color: rgb(0 0 0 / 0.10); }
+  .light .border-white\/15   { border-color: rgb(0 0 0 / 0.12); }
+  .light .border-white\/20   { border-color: rgb(0 0 0 / 0.18); }
+  .light .hover\:border-white\/15:hover { border-color: rgb(0 0 0 / 0.12); }
+  .light .hover\:border-white\/20:hover { border-color: rgb(0 0 0 / 0.18); }
+
+  /* Gradientes */
+  .light .bg-auth-gradient {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 50%, #dbeafe 100%);
+  }
+
+  /* Ring (badge ponto laranja no sino) */
+  .light .ring-surface-800 { --tw-ring-color: #ffffff; }
+
+  /* Sombra em light fica mais suave */
+  .light .shadow-glass { box-shadow: 0 4px 24px 0 rgb(0 0 0 / 0.08); }
+
+  /* Divider */
+  .light .divider { @apply bg-black/10; }
+
+  /* FullCalendar — tema claro */
+  .light .fc-dark {
+    --fc-border-color: rgba(0, 0, 0, 0.10);
+    --fc-today-bg-color: rgba(14, 165, 233, 0.06);
+    --fc-page-bg-color: transparent;
+    --fc-neutral-bg-color: rgba(0, 0, 0, 0.02);
+    --fc-highlight-color: rgba(14, 165, 233, 0.12);
+    --fc-non-business-color: rgba(0, 0, 0, 0.02);
+    --fc-button-bg-color: #ffffff;
+    --fc-button-border-color: rgba(0, 0, 0, 0.12);
+    --fc-button-text-color: #334155;
+    --fc-button-hover-bg-color: #f1f5f9;
+    --fc-button-hover-border-color: rgba(0, 0, 0, 0.20);
+    --fc-button-active-bg-color: #0ea5e9;
+    --fc-button-active-text-color: #ffffff;
+  }
+  .light .fc-dark .fc-toolbar-title { color: #0f172a; }
+  .light .fc-dark .fc-col-header-cell-cushion { color: #64748b; }
+  .light .fc-dark .fc-timegrid-slot-label-cushion { color: #94a3b8; }
+  .light .fc-dark .fc-daygrid-day-number { color: #64748b; }
 }

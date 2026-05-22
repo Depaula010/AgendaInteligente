@@ -10,6 +10,8 @@ import {
   LogOut,
   Bell,
   BellOff,
+  Moon,
+  Sun,
 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
 import { ROUTES } from '@/app/routes'
@@ -17,6 +19,7 @@ import { useAuthStore } from '@/features/auth/store/authStore'
 import { whatsappService } from '@/features/whatsapp/services/whatsapp.service'
 import { pushService } from '@/features/notificacoes/services/push.service'
 import { usePushNotifications } from '@/shared/hooks/usePushNotifications'
+import { useDarkMode } from '@/shared/hooks/useDarkMode'
 
 const NAV_ITEMS = [
   { label: 'Agenda',        icon: CalendarDays, to: ROUTES.AGENDA,        whatsapp: false },
@@ -89,6 +92,7 @@ export function DashboardLayout() {
     enabled: typeof window !== 'undefined' && 'PushManager' in window,
   })
   const { isSupported, isSubscribed, isLoading, toggle } = usePushNotifications(vapidPublicKey)
+  const { isDark, toggle: toggleTheme } = useDarkMode()
 
   const currentPage = NAV_ITEMS.find(
     (item) => pathname === item.to || pathname.startsWith(item.to + '/'),
@@ -151,6 +155,18 @@ export function DashboardLayout() {
                 )}
               </button>
             )}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={isDark ? 'Modo claro' : 'Modo escuro'}
+              className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              {isDark ? (
+                <Sun className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Moon className="h-4 w-4" aria-hidden="true" />
+              )}
+            </button>
           </div>
           <button
             type="button"
@@ -189,6 +205,18 @@ export function DashboardLayout() {
                 )}
               </button>
             )}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={isDark ? 'Modo claro' : 'Modo escuro'}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              {isDark ? (
+                <Sun className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Moon className="h-4 w-4" aria-hidden="true" />
+              )}
+            </button>
             <div className="h-7 w-7 rounded-full bg-brand-500/20 flex items-center justify-center">
               <span className="text-xs font-semibold text-brand-400">{userInitial}</span>
             </div>
