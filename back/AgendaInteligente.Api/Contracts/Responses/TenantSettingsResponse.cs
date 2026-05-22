@@ -8,5 +8,7 @@ public record TenantSettingsResponse(
     int ReengagementInactiveDays,
     string? BotDisplayName,
     string? WhatsAppPhoneNumber,
-    string? ConflictMessageTemplate
+    string? ConflictMessageTemplate,
+    bool HasGeminiApiKey,
+    string GeminiModel
 );

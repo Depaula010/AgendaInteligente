@@ -24,7 +24,9 @@ public static class TenantSettingsEndpoints
                 settings.Id, settings.WorkingHoursJson, settings.DaysOffJson,
                 settings.ReminderLeadTimeHours, settings.ReengagementInactiveDays,
                 settings.BotDisplayName, settings.WhatsAppPhoneNumber,
-                settings.ConflictMessageTemplate);
+                settings.ConflictMessageTemplate,
+                HasGeminiApiKey: !string.IsNullOrEmpty(settings.GeminiApiKey),
+                GeminiModel: settings.GeminiModel);
 
             return Results.Ok(response);
         });
@@ -48,7 +50,12 @@ public static class TenantSettingsEndpoints
                     WhatsAppPhoneNumber      = request.WhatsAppPhoneNumber,
                     ConflictMessageTemplate  = request.ConflictMessageTemplate
                 };
-                
+
+                if (request.GeminiApiKey is not null)
+                    newSettings.GeminiApiKey = string.IsNullOrEmpty(request.GeminiApiKey) ? null : request.GeminiApiKey;
+                if (request.GeminiModel is not null)
+                    newSettings.GeminiModel = request.GeminiModel;
+
                 settings = await service.CreateAsync(newSettings, ct);
             }
             else
@@ -63,6 +70,13 @@ public static class TenantSettingsEndpoints
                 existingSettings.ConflictMessageTemplate  = request.ConflictMessageTemplate;
                 existingSettings.UpdatedAt                = DateTime.UtcNow;
 
+                if (request.GeminiApiKey is not null)
+                    existingSettings.GeminiApiKey = string.IsNullOrEmpty(request.GeminiApiKey)
+                        ? null
+                        : request.GeminiApiKey;
+                if (request.GeminiModel is not null)
+                    existingSettings.GeminiModel = request.GeminiModel;
+
                 settings = await service.UpdateAsync(existingSettings, ct);
             }
 
@@ -70,7 +84,9 @@ public static class TenantSettingsEndpoints
                 settings.Id, settings.WorkingHoursJson, settings.DaysOffJson,
                 settings.ReminderLeadTimeHours, settings.ReengagementInactiveDays,
                 settings.BotDisplayName, settings.WhatsAppPhoneNumber,
-                settings.ConflictMessageTemplate);
+                settings.ConflictMessageTemplate,
+                HasGeminiApiKey: !string.IsNullOrEmpty(settings.GeminiApiKey),
+                GeminiModel: settings.GeminiModel);
 
             return Results.Ok(response);
         });

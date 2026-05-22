@@ -11,5 +11,9 @@ public record SaveTenantSettingsRequest(
     /// Template da mensagem de conflito. Use {alternatives} para injetar os horários disponíveis.
     /// Deixe nulo para usar o template padrão do sistema.
     /// </summary>
-    string? ConflictMessageTemplate = null
+    string? ConflictMessageTemplate = null,
+    /// <summary>null = não alterar; "" = remover; valor = definir nova chave</summary>
+    string? GeminiApiKey = null,
+    /// <summary>null = não alterar</summary>
+    string? GeminiModel = null
 );

@@ -22,16 +22,6 @@ const WhatsAppPage = lazy(() =>
   import('@/features/whatsapp/pages/WhatsAppPage').then((m) => ({ default: m.WhatsAppPage })),
 )
 
-// Placeholder para rotas ainda não implementadas
-function ComingSoon({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-      <p className="text-2xl mb-2">🚧</p>
-      <p className="text-white font-semibold">{label}</p>
-      <p className="text-sm text-slate-500 mt-1">Em breve</p>
-    </div>
-  )
-}
 
 const ClientesPage = lazy(() =>
   import('@/features/clientes/pages/ClientesPage').then((m) => ({ default: m.ClientesPage })),
@@ -43,7 +33,9 @@ const ServicosPage = lazy(() =>
   import('@/features/servicos/pages/ServicosPage').then((m) => ({ default: m.ServicosPage })),
 )
 const ConfiguracoesPage = lazy(() =>
-  Promise.resolve({ default: () => <ComingSoon label="Configurações" /> }),
+  import('@/features/configuracoes/pages/ConfiguracoesPage').then((m) => ({
+    default: m.ConfiguracoesPage,
+  })),
 )
 
 export function AppRouter() {

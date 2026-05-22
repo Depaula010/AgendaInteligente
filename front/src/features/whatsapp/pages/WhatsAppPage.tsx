@@ -109,15 +109,28 @@ export function WhatsAppPage() {
 
         {/* Connected state */}
         {status.isConnected && (
-          <div className="flex items-center gap-3 rounded-xl bg-green-500/10 border border-green-500/20 p-4">
-            <CheckCircle2 className="h-5 w-5 text-green-400 flex-shrink-0" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-medium text-white">Bot conectado com sucesso</p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Clientes podem agendar pelo WhatsApp.
-              </p>
+          <>
+            <div className="flex items-center gap-3 rounded-xl bg-green-500/10 border border-green-500/20 p-4">
+              <CheckCircle2 className="h-5 w-5 text-green-400 flex-shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-medium text-white">Bot conectado com sucesso</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Clientes podem agendar pelo WhatsApp.
+                </p>
+              </div>
             </div>
-          </div>
+            <div className="mt-4 flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => connectMutation.mutate()}
+                isLoading={connectMutation.isPending}
+                leftIcon={<RefreshCw className="h-4 w-4" aria-hidden="true" />}
+              >
+                Forçar reconexão
+              </Button>
+            </div>
+          </>
         )}
 
         {/* QR code state */}
