@@ -45,4 +45,10 @@ public interface IScheduleRepository
     /// </summary>
     Task<IReadOnlyList<Schedule>> GetUpcomingForReminderAsync(
         Guid tenantId, DateTime from, DateTime to, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retorna todos os agendamentos de um cliente, ordenados por data decrescente.
+    /// Usado pelo dashboard para exibir o histórico de visitas.
+    /// </summary>
+    Task<IReadOnlyList<Schedule>> GetAllByCustomerIdAsync(Guid customerId, CancellationToken ct = default);
 }

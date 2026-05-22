@@ -20,6 +20,9 @@ public sealed class ProfessionalService : IProfessionalService
     public Task<IReadOnlyList<Professional>> GetAllActiveAsync(CancellationToken ct = default)
         => _repo.GetAllActiveAsync(ct);
 
+    public Task<IReadOnlyList<Professional>> GetAllAsync(CancellationToken ct = default)
+        => _repo.GetAllAsync(ct);
+
     public Task<Professional?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 

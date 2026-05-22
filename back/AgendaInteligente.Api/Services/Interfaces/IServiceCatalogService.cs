@@ -5,6 +5,7 @@ namespace AgendaInteligente.Api.Services.Interfaces;
 public interface IServiceCatalogService
 {
     Task<IReadOnlyList<Service>> GetAllActiveAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<Service>> GetAllAsync(CancellationToken ct = default);
     Task<Service?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<Service> CreateAsync(
         string name, int durationMinutes, decimal price,

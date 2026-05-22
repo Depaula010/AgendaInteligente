@@ -13,9 +13,11 @@ public static class ProfessionalEndpoints
             .WithTags("Professionals")
             .RequireAuthorization();
 
-        group.MapGet("/", async (IProfessionalService service, CancellationToken ct) =>
+        group.MapGet("/", async ([FromQuery] bool all, IProfessionalService service, CancellationToken ct) =>
         {
-            var professionals = await service.GetAllActiveAsync(ct);
+            var professionals = all
+                ? await service.GetAllAsync(ct)
+                : await service.GetAllActiveAsync(ct);
             var response = professionals.Select(p => new ProfessionalResponse(
                 p.Id, p.Name, p.Email, p.Role, p.CalendarColor, p.IsActive, p.CreatedAt));
             return Results.Ok(response);

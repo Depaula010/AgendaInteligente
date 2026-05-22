@@ -18,6 +18,12 @@ public sealed class ProfessionalRepository : IProfessionalRepository
               .ToListAsync(ct)
               .ContinueWith(t => (IReadOnlyList<Professional>)t.Result, ct);
 
+    public Task<IReadOnlyList<Professional>> GetAllAsync(CancellationToken ct = default)
+        => _db.Professionals
+              .OrderBy(p => p.Name)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<Professional>)t.Result, ct);
+
     public Task<Professional?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => _db.Professionals.FirstOrDefaultAsync(p => p.Id == id, ct);
 

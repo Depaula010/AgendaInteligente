@@ -40,3 +40,43 @@ export interface ServiceCatalogResponse {
   isActive: boolean
   createdAt: string
 }
+
+export interface CustomerResponse {
+  id: string
+  name: string
+  phoneNumber: string
+  email: string | null
+  lastVisitAt: string | null
+}
+
+export interface CreateCustomerRequest {
+  name: string
+  phoneNumber: string
+  email?: string
+}
+
+export interface CreateScheduleRequest {
+  customerId: string
+  professionalId: string
+  serviceId: string
+  startDateTime: string
+  notes?: string
+}
+
+export interface UpdateScheduleRequest {
+  startDateTime: string
+  notes?: string
+}
+
+export interface AvailableSlotsResponse {
+  professionalId: string
+  serviceId: string
+  date: string
+  durationMinutes: number
+  slots: string[]
+}
+
+export interface ConflictInfo {
+  error: string
+  suggestedAlternatives: string[]
+}

@@ -19,6 +19,9 @@ public sealed class ServiceCatalogService : IServiceCatalogService
     public Task<IReadOnlyList<Service>> GetAllActiveAsync(CancellationToken ct = default)
         => _repo.GetAllActiveAsync(ct);
 
+    public Task<IReadOnlyList<Service>> GetAllAsync(CancellationToken ct = default)
+        => _repo.GetAllAsync(ct);
+
     public Task<Service?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 

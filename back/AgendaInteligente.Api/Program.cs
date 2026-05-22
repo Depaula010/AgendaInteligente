@@ -180,6 +180,7 @@ app.MapOnboardingEndpoints();
 app.MapAuthEndpoints();
 app.MapTenantEndpoints();
 
+app.MapCustomerEndpoints();
 app.MapProfessionalEndpoints();
 app.MapServiceCatalogEndpoints();
 app.MapScheduleEndpoints();

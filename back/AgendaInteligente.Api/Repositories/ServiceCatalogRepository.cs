@@ -18,6 +18,12 @@ public sealed class ServiceCatalogRepository : IServiceCatalogRepository
               .ToListAsync(ct)
               .ContinueWith(t => (IReadOnlyList<Service>)t.Result, ct);
 
+    public Task<IReadOnlyList<Service>> GetAllAsync(CancellationToken ct = default)
+        => _db.Services
+              .OrderBy(s => s.Name)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<Service>)t.Result, ct);
+
     public Task<Service?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => _db.Services.FirstOrDefaultAsync(s => s.Id == id, ct);
 

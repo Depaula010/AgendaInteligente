@@ -5,6 +5,7 @@ namespace AgendaInteligente.Api.Repositories.Interfaces;
 public interface IProfessionalRepository
 {
     Task<IReadOnlyList<Professional>> GetAllActiveAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<Professional>> GetAllAsync(CancellationToken ct = default);
     Task<Professional?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<Professional?> GetByEmailAsync(string email, CancellationToken ct = default);
     Task<Professional?> GetByEmailIgnoringQueryFilterAsync(string email, CancellationToken ct = default);

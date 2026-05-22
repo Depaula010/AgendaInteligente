@@ -5,6 +5,7 @@ namespace AgendaInteligente.Api.Services.Interfaces;
 public interface IProfessionalService
 {
     Task<IReadOnlyList<Professional>> GetAllActiveAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<Professional>> GetAllAsync(CancellationToken ct = default);
     Task<Professional?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>

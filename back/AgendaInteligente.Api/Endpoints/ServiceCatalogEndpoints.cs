@@ -13,9 +13,11 @@ public static class ServiceCatalogEndpoints
             .WithTags("Service Catalog")
             .RequireAuthorization();
 
-        group.MapGet("/", async (IServiceCatalogService service, CancellationToken ct) =>
+        group.MapGet("/", async ([FromQuery] bool all, IServiceCatalogService service, CancellationToken ct) =>
         {
-            var services = await service.GetAllActiveAsync(ct);
+            var services = all
+                ? await service.GetAllAsync(ct)
+                : await service.GetAllActiveAsync(ct);
             var response = services.Select(s => new ServiceCatalogResponse(
                 s.Id, s.Name, s.DurationMinutes, s.Price, s.Description, s.CalendarColor, s.IsActive, s.CreatedAt));
             return Results.Ok(response);

@@ -1,4 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   CalendarDays,
   Users,
@@ -11,31 +12,33 @@ import {
 import { cn } from '@/shared/utils/cn'
 import { ROUTES } from '@/app/routes'
 import { useAuthStore } from '@/features/auth/store/authStore'
+import { whatsappService } from '@/features/whatsapp/services/whatsapp.service'
 
 const NAV_ITEMS = [
-  { label: 'Agenda', icon: CalendarDays, to: ROUTES.AGENDA },
-  { label: 'Clientes', icon: Users, to: ROUTES.CLIENTES },
-  { label: 'Equipe', icon: UserCog, to: ROUTES.EQUIPE },
-  { label: 'Serviços', icon: Scissors, to: ROUTES.SERVICOS },
-  { label: 'Configurações', icon: Settings, to: ROUTES.CONFIGURACOES },
-  { label: 'WhatsApp', icon: MessageCircle, to: ROUTES.WHATSAPP },
+  { label: 'Agenda',        icon: CalendarDays, to: ROUTES.AGENDA,        whatsapp: false },
+  { label: 'Clientes',      icon: Users,         to: ROUTES.CLIENTES,       whatsapp: false },
+  { label: 'Equipe',        icon: UserCog,       to: ROUTES.EQUIPE,         whatsapp: false },
+  { label: 'Serviços',      icon: Scissors,      to: ROUTES.SERVICOS,       whatsapp: false },
+  { label: 'Configurações', icon: Settings,      to: ROUTES.CONFIGURACOES,  whatsapp: false },
+  { label: 'WhatsApp',      icon: MessageCircle, to: ROUTES.WHATSAPP,       whatsapp: true  },
 ] as const
 
 const BOTTOM_NAV = [
-  { label: 'Agenda', icon: CalendarDays, to: ROUTES.AGENDA },
-  { label: 'Clientes', icon: Users, to: ROUTES.CLIENTES },
-  { label: 'Serviços', icon: Scissors, to: ROUTES.SERVICOS },
-  { label: 'WhatsApp', icon: MessageCircle, to: ROUTES.WHATSAPP },
-  { label: 'Config', icon: Settings, to: ROUTES.CONFIGURACOES },
+  { label: 'Agenda',   icon: CalendarDays, to: ROUTES.AGENDA,       whatsapp: false },
+  { label: 'Clientes', icon: Users,        to: ROUTES.CLIENTES,      whatsapp: false },
+  { label: 'Serviços', icon: Scissors,     to: ROUTES.SERVICOS,      whatsapp: false },
+  { label: 'WhatsApp', icon: MessageCircle, to: ROUTES.WHATSAPP,     whatsapp: true  },
+  { label: 'Config',   icon: Settings,     to: ROUTES.CONFIGURACOES, whatsapp: false },
 ] as const
 
 interface NavItemProps {
   label: string
   icon: React.ElementType
   to: string
+  badge?: boolean
 }
 
-function SidebarNavItem({ label, icon: Icon, to }: NavItemProps) {
+function SidebarNavItem({ label, icon: Icon, to, badge }: NavItemProps) {
   const { pathname } = useLocation()
   const isActive = pathname === to || pathname.startsWith(to + '/')
   return (
@@ -48,16 +51,32 @@ function SidebarNavItem({ label, icon: Icon, to }: NavItemProps) {
           : 'text-slate-400 hover:text-white hover:bg-white/5',
       )}
     >
-      <Icon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+      <div className="relative flex-shrink-0">
+        <Icon className="h-5 w-5" aria-hidden="true" />
+        {badge && (
+          <span
+            className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-orange-400 ring-2 ring-surface-800"
+            aria-label="WhatsApp desconectado"
+          />
+        )}
+      </div>
       {label}
     </Link>
   )
 }
 
 export function DashboardLayout() {
-  const user = useAuthStore((s) => s.user)
+  const user   = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const { pathname } = useLocation()
+
+  const { data: whatsappStatus } = useQuery({
+    queryKey: ['whatsapp-status'],
+    queryFn: whatsappService.getStatus,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+  const whatsappDisconnected = whatsappStatus !== undefined && !whatsappStatus.isConnected
 
   const currentPage = NAV_ITEMS.find(
     (item) => pathname === item.to || pathname.startsWith(item.to + '/'),
@@ -85,7 +104,11 @@ export function DashboardLayout() {
           aria-label="Navegação principal"
         >
           {NAV_ITEMS.map((item) => (
-            <SidebarNavItem key={item.to} {...item} />
+            <SidebarNavItem
+              key={item.to}
+              {...item}
+              badge={item.whatsapp ? whatsappDisconnected : undefined}
+            />
           ))}
         </nav>
 
@@ -139,8 +162,9 @@ export function DashboardLayout() {
           aria-label="Navegação mobile"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          {BOTTOM_NAV.map(({ label, icon: Icon, to }) => {
+          {BOTTOM_NAV.map(({ label, icon: Icon, to, whatsapp }) => {
             const isActive = pathname === to || pathname.startsWith(to + '/')
+            const showBadge = whatsapp && whatsappDisconnected
             return (
               <Link
                 key={to}
@@ -150,7 +174,15 @@ export function DashboardLayout() {
                   isActive ? 'text-brand-400' : 'text-slate-500 hover:text-slate-300',
                 )}
               >
-                <Icon className="h-5 w-5" aria-hidden="true" />
+                <div className="relative">
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                  {showBadge && (
+                    <span
+                      className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-orange-400 ring-2 ring-surface-800"
+                      aria-label="WhatsApp desconectado"
+                    />
+                  )}
+                </div>
                 <span>{label}</span>
               </Link>
             )

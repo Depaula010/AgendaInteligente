@@ -1,5 +1,4 @@
 import { lazy, Suspense } from 'react'
-import type React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ROUTES } from '@/app/routes'
 import { ProtectedRoute } from '@/shared/components/ui/ProtectedRoute'
@@ -34,21 +33,17 @@ function ComingSoon({ label }: { label: string }) {
   )
 }
 
-const ClientesPage = lazy(
-  (): Promise<{ default: () => React.ReactElement }> =>
-    Promise.resolve({ default: () => <ComingSoon label="Clientes" /> }),
+const ClientesPage = lazy(() =>
+  import('@/features/clientes/pages/ClientesPage').then((m) => ({ default: m.ClientesPage })),
 )
-const EquipePage = lazy(
-  (): Promise<{ default: () => React.ReactElement }> =>
-    Promise.resolve({ default: () => <ComingSoon label="Equipe" /> }),
+const EquipePage = lazy(() =>
+  import('@/features/equipe/pages/EquipePage').then((m) => ({ default: m.EquipePage })),
 )
-const ServicosPage = lazy(
-  (): Promise<{ default: () => React.ReactElement }> =>
-    Promise.resolve({ default: () => <ComingSoon label="Serviços" /> }),
+const ServicosPage = lazy(() =>
+  import('@/features/servicos/pages/ServicosPage').then((m) => ({ default: m.ServicosPage })),
 )
-const ConfiguracoesPage = lazy(
-  (): Promise<{ default: () => React.ReactElement }> =>
-    Promise.resolve({ default: () => <ComingSoon label="Configurações" /> }),
+const ConfiguracoesPage = lazy(() =>
+  Promise.resolve({ default: () => <ComingSoon label="Configurações" /> }),
 )
 
 export function AppRouter() {
