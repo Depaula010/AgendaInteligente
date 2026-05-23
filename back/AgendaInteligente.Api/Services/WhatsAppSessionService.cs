@@ -167,6 +167,91 @@ public sealed class WhatsAppSessionService : IWhatsAppSessionService
             new WhatsAppSessionStatusResponse(botStatus, isConnected, qrCode));
     }
 
+    public async Task<ServiceResult<bool>> ReconnectAsync(CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_options.BotUrl))
+            return ServiceResult<bool>.Fail("Bot não configurado (BotUrl ausente).");
+
+        var settings = await _settingsRepo.GetAsync(ct);
+        if (settings?.BotSessionId is null)
+            return ServiceResult<bool>.Fail("Nenhuma sessão WhatsApp configurada para este tenant.");
+
+        var httpClient = CreateBotClient();
+        var sessionId  = settings.BotSessionId.Value.ToString();
+
+        try
+        {
+            var response = await httpClient.PostAsync(
+                $"{_options.BotUrl}/api/v1/sessions/{sessionId}/reconnect",
+                content: null,
+                ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Bot recusou reconexão. Status={Status}, SessionId={SessionId}",
+                    (int)response.StatusCode, sessionId);
+                return ServiceResult<bool>.Fail("Bot recusou a reconexão.");
+            }
+
+            _logger.LogInformation("Reconexão manual iniciada. SessionId={SessionId}", sessionId);
+            return ServiceResult<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao chamar reconexão no bot. SessionId={SessionId}", sessionId);
+            return ServiceResult<bool>.Fail("Erro de comunicação com o bot.");
+        }
+    }
+
+    public async Task<ServiceResult<WhatsAppSessionStatsResponse>> GetStatsAsync(CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_options.BotUrl))
+            return ServiceResult<WhatsAppSessionStatsResponse>.Fail("Bot não configurado (BotUrl ausente).");
+
+        var settings = await _settingsRepo.GetAsync(ct);
+        if (settings?.BotSessionId is null)
+            return ServiceResult<WhatsAppSessionStatsResponse>.Success(
+                new WhatsAppSessionStatsResponse("", false, 0, 0, 0, 0, 0, null, null));
+
+        var httpClient = CreateBotClient();
+        var sessionId  = settings.BotSessionId.Value.ToString();
+
+        try
+        {
+            var response = await httpClient.GetAsync(
+                $"{_options.BotUrl}/api/v1/sessions/{sessionId}/stats", ct);
+
+            if (!response.IsSuccessStatusCode)
+                return ServiceResult<WhatsAppSessionStatsResponse>.Fail("Falha ao consultar stats no bot.");
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+            var d    = body.GetProperty("data");
+
+            var stats = new WhatsAppSessionStatsResponse(
+                SessionId:           d.GetProperty("session_id").GetString() ?? sessionId,
+                IsActive:            d.GetProperty("is_active").GetBoolean(),
+                MessagesReceived:    d.GetProperty("messages_received").GetInt32(),
+                MessagesSent:        d.GetProperty("messages_sent").GetInt32(),
+                WebhookErrors:       d.GetProperty("webhook_errors").GetInt32(),
+                CircuitBreakerTrips: d.GetProperty("circuit_breaker_trips").GetInt32(),
+                ReconnectCount:      d.GetProperty("reconnect_count").GetInt32(),
+                ConnectedAt:         d.GetProperty("connected_at").ValueKind == JsonValueKind.Null
+                                        ? null
+                                        : d.GetProperty("connected_at").GetString(),
+                UptimeSeconds:       d.GetProperty("uptime_seconds").ValueKind == JsonValueKind.Null
+                                        ? null
+                                        : d.GetProperty("uptime_seconds").GetInt32()
+            );
+
+            return ServiceResult<WhatsAppSessionStatsResponse>.Success(stats);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao consultar stats no bot. SessionId={SessionId}", sessionId);
+            return ServiceResult<WhatsAppSessionStatsResponse>.Fail("Erro de comunicação com o bot.");
+        }
+    }
+
     private HttpClient CreateBotClient()
     {
         var client = _httpClientFactory.CreateClient();

@@ -47,6 +47,26 @@ public static class WhatsAppEndpoints
             .Produces<WhatsAppSessionStatusResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        group.MapPost("/session/reconnect", ReconnectSessionAsync)
+            .WithName("ReconnectWhatsAppSession")
+            .WithSummary("Força reconexão da sessão WhatsApp sem apagar auth")
+            .WithDescription(
+                "Fecha o socket atual e inicia nova conexão reutilizando as credenciais existentes. " +
+                "Útil para recuperar sessões travadas sem precisar re-escanear o QR code. Requer role Owner.")
+            .Produces(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        group.MapGet("/session/stats", GetSessionStatsAsync)
+            .WithName("GetWhatsAppSessionStats")
+            .WithSummary("Retorna métricas em memória da sessão WhatsApp")
+            .WithDescription(
+                "Mensagens recebidas/enviadas, erros de webhook, trips do circuit breaker e uptime. " +
+                "Métricas são reiniciadas a cada reconexão. Requer role Owner.")
+            .Produces<WhatsAppSessionStatsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
     }
 
     public static async Task<IResult> SendMessageAsync(
@@ -91,6 +111,28 @@ public static class WhatsAppEndpoints
         CancellationToken ct)
     {
         var result = await sessionService.GetStatusAsync(ct);
+        if (!result.IsSuccess)
+            return Results.Problem(detail: result.Error, statusCode: StatusCodes.Status502BadGateway);
+
+        return Results.Ok(result.Value);
+    }
+
+    public static async Task<IResult> ReconnectSessionAsync(
+        [FromServices] IWhatsAppSessionService sessionService,
+        CancellationToken ct)
+    {
+        var result = await sessionService.ReconnectAsync(ct);
+        if (!result.IsSuccess)
+            return Results.Problem(detail: result.Error, statusCode: StatusCodes.Status502BadGateway);
+
+        return Results.Ok(new { reconnecting = true });
+    }
+
+    public static async Task<IResult> GetSessionStatsAsync(
+        [FromServices] IWhatsAppSessionService sessionService,
+        CancellationToken ct)
+    {
+        var result = await sessionService.GetStatsAsync(ct);
         if (!result.IsSuccess)
             return Results.Problem(detail: result.Error, statusCode: StatusCodes.Status502BadGateway);
 

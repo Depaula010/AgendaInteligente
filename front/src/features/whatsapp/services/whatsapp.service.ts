@@ -1,5 +1,5 @@
 import { api } from '@/shared/lib/axios'
-import type { WhatsAppStatus } from '../types/whatsapp.types'
+import type { WhatsAppSessionStats, WhatsAppStatus } from '../types/whatsapp.types'
 
 export const whatsappService = {
   async getStatus(): Promise<WhatsAppStatus> {
@@ -9,5 +9,14 @@ export const whatsappService = {
 
   async connect(): Promise<void> {
     await api.post('/whatsapp/session')
+  },
+
+  async reconnect(): Promise<void> {
+    await api.post('/whatsapp/session/reconnect')
+  },
+
+  async getStats(): Promise<WhatsAppSessionStats> {
+    const res = await api.get<WhatsAppSessionStats>('/whatsapp/session/stats')
+    return res.data
   },
 }

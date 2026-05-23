@@ -1,5 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, RefreshCw, Smartphone, WifiOff, Loader2 } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  MessageSquare,
+  RefreshCw,
+  Send,
+  Smartphone,
+  WifiOff,
+  Zap,
+} from 'lucide-react'
 import { whatsappService } from '@/features/whatsapp/services/whatsapp.service'
 import { Button } from '@/shared/components/ui/Button'
 import { Badge } from '@/shared/components/ui/Badge'
@@ -19,6 +31,15 @@ const STATUS_BADGE: Record<string, 'success' | 'warning' | 'danger' | 'default'>
   unknown: 'default',
 }
 
+function formatUptime(seconds: number | null): string {
+  if (seconds === null) return '—'
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}min`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  return m > 0 ? `${h}h ${m}min` : `${h}h`
+}
+
 export function WhatsAppPage() {
   const queryClient = useQueryClient()
 
@@ -36,6 +57,14 @@ export function WhatsAppPage() {
     retry: 1,
   })
 
+  const { data: stats } = useQuery({
+    queryKey: ['whatsapp-stats'],
+    queryFn: whatsappService.getStats,
+    enabled: status?.isConnected === true,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
   const connectMutation = useMutation({
     mutationFn: whatsappService.connect,
     onSuccess: () => {
@@ -44,6 +73,18 @@ export function WhatsAppPage() {
     },
     onError: (err: unknown) => {
       appToast.error(appToast.apiError(err, 'Não foi possível iniciar a conexão.'))
+    },
+  })
+
+  const reconnectMutation = useMutation({
+    mutationFn: whatsappService.reconnect,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-status'] })
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-stats'] })
+      appToast.success('Reconexão iniciada. Aguarde...')
+    },
+    onError: (err: unknown) => {
+      appToast.error(appToast.apiError(err, 'Não foi possível reconectar.'))
     },
   })
 
@@ -123,8 +164,8 @@ export function WhatsAppPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => connectMutation.mutate()}
-                isLoading={connectMutation.isPending}
+                onClick={() => reconnectMutation.mutate()}
+                isLoading={reconnectMutation.isPending}
                 leftIcon={<RefreshCw className="h-4 w-4" aria-hidden="true" />}
               >
                 Forçar reconexão
@@ -175,6 +216,50 @@ export function WhatsAppPage() {
         )}
       </div>
 
+      {/* Stats card — visível apenas quando conectado */}
+      {status.isConnected && stats && (
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 mb-4">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
+            Métricas da sessão
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <StatItem
+              icon={<MessageSquare className="h-4 w-4 text-brand-400" />}
+              label="Recebidas"
+              value={stats.messagesReceived}
+            />
+            <StatItem
+              icon={<Send className="h-4 w-4 text-green-400" />}
+              label="Enviadas"
+              value={stats.messagesSent}
+            />
+            <StatItem
+              icon={<AlertTriangle className="h-4 w-4 text-amber-400" />}
+              label="Erros webhook"
+              value={stats.webhookErrors}
+              alert={stats.webhookErrors > 0}
+            />
+            <StatItem
+              icon={<Zap className="h-4 w-4 text-red-400" />}
+              label="Circuit trips"
+              value={stats.circuitBreakerTrips}
+              alert={stats.circuitBreakerTrips > 0}
+            />
+            <StatItem
+              icon={<Activity className="h-4 w-4 text-slate-400" />}
+              label="Reconexões"
+              value={stats.reconnectCount}
+            />
+            <StatItem
+              icon={<Clock className="h-4 w-4 text-slate-400" />}
+              label="Uptime"
+              value={formatUptime(stats.uptimeSeconds)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Instructions */}
       {!status.isConnected && (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -198,6 +283,27 @@ export function WhatsAppPage() {
           </ol>
         </div>
       )}
+    </div>
+  )
+}
+
+interface StatItemProps {
+  icon: React.ReactNode
+  label: string
+  value: number | string
+  alert?: boolean
+}
+
+function StatItem({ icon, label, value, alert = false }: StatItemProps) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
+      <div className="flex-shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500 truncate">{label}</p>
+        <p className={`text-sm font-semibold ${alert ? 'text-amber-400' : 'text-white'}`}>
+          {value}
+        </p>
+      </div>
     </div>
   )
 }
