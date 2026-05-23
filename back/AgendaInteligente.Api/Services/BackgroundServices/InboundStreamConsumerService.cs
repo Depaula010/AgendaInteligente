@@ -45,6 +45,8 @@ public sealed class InboundStreamConsumerService : BackgroundService
         {
             try
             {
+                await MoveDeadLetterEntriesAsync(stoppingToken);
+
                 var db      = _redis.GetDatabase();
                 var entries = await db.StreamReadGroupAsync(
                     _opts.InboundStream,
@@ -84,6 +86,61 @@ public sealed class InboundStreamConsumerService : BackgroundService
         }
 
         _logger.LogInformation("[STREAM-CONSUMER] Encerrado graciosamente.");
+    }
+
+    private async Task MoveDeadLetterEntriesAsync(CancellationToken ct)
+    {
+        var db = _redis.GetDatabase();
+
+        StreamPendingMessageInfo[] pending;
+        try
+        {
+            pending = await db.StreamPendingMessagesAsync(
+                _opts.InboundStream,
+                _opts.ConsumerGroup,
+                count: 100,
+                consumerName: _opts.ConsumerName);
+        }
+        catch (RedisServerException ex) when (ex.Message.Contains("NOGROUP") || ex.Message.Contains("no such key"))
+        {
+            return;
+        }
+
+        var deadIds = pending
+            .Where(p => p.DeliveryCount >= _opts.DeadLetterThreshold)
+            .Select(p => p.MessageId)
+            .ToArray();
+
+        if (deadIds.Length == 0) return;
+
+        foreach (var messageId in deadIds)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var entries = await db.StreamRangeAsync(_opts.InboundStream, messageId, messageId, count: 1);
+            var entry   = entries.FirstOrDefault();
+
+            if (entry.IsNull)
+            {
+                await db.StreamAcknowledgeAsync(_opts.InboundStream, _opts.ConsumerGroup, messageId);
+                continue;
+            }
+
+            var deadFields = entry.Values
+                .Append(new NameValueEntry("failure_count",     _opts.DeadLetterThreshold.ToString()))
+                .Append(new NameValueEntry("failed_at",         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()))
+                .Append(new NameValueEntry("original_entry_id", messageId.ToString()))
+                .ToArray();
+
+            await db.StreamAddAsync(_opts.DeadLetterStream, deadFields);
+            await db.StreamAcknowledgeAsync(_opts.InboundStream, _opts.ConsumerGroup, messageId);
+
+            _logger.LogWarning(
+                "[STREAM-CONSUMER] Entrada movida para dead letter após {Threshold} falhas. " +
+                "EntryId={Id} DeadStream={Dead} TenantId={TenantId}",
+                _opts.DeadLetterThreshold, messageId, _opts.DeadLetterStream,
+                entry["tenant_id"].ToString());
+        }
     }
 
     private async Task EnsureConsumerGroupAsync()
