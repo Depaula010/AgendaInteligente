@@ -6,10 +6,13 @@ using AgendaInteligente.Api.MultiTenancy;
 using AgendaInteligente.Api.Repositories;
 using AgendaInteligente.Api.Repositories.Interfaces;
 using AgendaInteligente.Api.Services;
+using AgendaInteligente.Api.Services.BackgroundServices;
 using AgendaInteligente.Api.Services.Interfaces;
+using AgendaInteligente.Api.Services.Redis;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using System.Text;
 
 
@@ -22,16 +25,27 @@ builder.Services.AddHttpContextAccessor();
 // Scoped: cada requisição HTTP resolve o seu próprio TenantId
 builder.Services.AddScoped<ITenantProvider, HttpContextTenantProvider>();
 
-// ── Redis Distributed Cache ────────────────────────────────────────────────────
+// ── Redis Distributed Cache + Streams ─────────────────────────────────────────
 var redisConnection = builder.Configuration.GetConnectionString("RedisConnection");
 if (!string.IsNullOrWhiteSpace(redisConnection))
 {
     builder.Services.AddStackExchangeRedisCache(options => options.Configuration = redisConnection);
+
+    // IConnectionMultiplexer compartilhado para Redis Streams (XADD / XREADGROUP)
+    builder.Services.AddSingleton<IConnectionMultiplexer>(
+        _ => ConnectionMultiplexer.Connect(redisConnection));
+
+    builder.Services.Configure<RedisStreamOptions>(
+        builder.Configuration.GetSection(RedisStreamOptions.SectionName));
+
+    builder.Services.AddSingleton<IRedisStreamService, RedisStreamService>();
+    builder.Services.AddHostedService<InboundStreamConsumerService>();
 }
 else
 {
     // Fallback em memória para ambiente de testes/CI sem Redis
     builder.Services.AddDistributedMemoryCache();
+    builder.Services.AddSingleton<IRedisStreamService, NullRedisStreamService>();
 }
 
 // ── Database (Entity Framework Core + PostgreSQL) ──────────────────────────────
