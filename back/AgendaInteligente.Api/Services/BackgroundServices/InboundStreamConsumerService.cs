@@ -203,9 +203,13 @@ public sealed class InboundStreamConsumerService : BackgroundService
 
             var reply = await webhookService.ProcessWhatsAppMessageAsync(tenantId, request, ct);
 
-            if (!string.IsNullOrWhiteSpace(reply))
+            if (reply.HasInteractive && reply.InteractiveList is not null)
             {
-                await sendService.SendTextMessageAsync(tenantId, numeroRemetente, reply, ct);
+                await sendService.SendInteractiveListAsync(tenantId, numeroRemetente, reply.InteractiveList, ct);
+            }
+            else if (!string.IsNullOrWhiteSpace(reply.Text))
+            {
+                await sendService.SendTextMessageAsync(tenantId, numeroRemetente, reply.Text, ct);
             }
 
             await db.StreamAcknowledgeAsync(_opts.InboundStream, _opts.ConsumerGroup, entry.Id);

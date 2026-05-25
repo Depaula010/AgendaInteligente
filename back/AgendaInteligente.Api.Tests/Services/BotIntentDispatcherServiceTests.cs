@@ -1,3 +1,4 @@
+using AgendaInteligente.Api.Contracts.Models;
 using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Domain.Enums;
 using AgendaInteligente.Api.Domain.Exceptions;
@@ -19,6 +20,7 @@ public sealed class BotIntentDispatcherServiceTests
     private readonly Mock<IScheduleRepository>        _scheduleRepoMock;
     private readonly Mock<IScheduleService>           _scheduleServiceMock;
     private readonly Mock<ITenantSettingsRepository>  _settingsMock;
+    private readonly Mock<IWebPushService>            _webPushMock;
     private readonly BotIntentDispatcherService       _svc;
 
     private static readonly Guid   TenantId    = Guid.NewGuid();
@@ -32,6 +34,7 @@ public sealed class BotIntentDispatcherServiceTests
         _scheduleRepoMock    = new Mock<IScheduleRepository>();
         _scheduleServiceMock = new Mock<IScheduleService>();
         _settingsMock        = new Mock<ITenantSettingsRepository>();
+        _webPushMock         = new Mock<IWebPushService>();
 
         // Default: customer existente, serviço "Corte", profissional "João"
         _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -66,7 +69,8 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Resposta da IA", result);
+        Assert.Equal("Resposta da IA", result.Text);
+        Assert.False(result.HasInteractive);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -85,7 +89,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Para qual dia?", result);
+        Assert.Equal("Para qual dia?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -102,7 +106,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Qual horário prefere?", result);
+        Assert.Equal("Qual horário prefere?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -119,7 +123,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Qual serviço?", result);
+        Assert.Equal("Qual serviço?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -137,7 +141,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Não encontrei esse serviço.", result);
+        Assert.Equal("Não encontrei esse serviço.", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -157,7 +161,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Agendamento confirmado!", result);
+        Assert.Equal("Agendamento confirmado!", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -179,7 +183,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Agendado!", result);
+        Assert.Equal("Agendado!", result.Text);
         _customerMock.Verify(r => r.CreateAsync(
             It.Is<Customer>(c => c.PhoneNumber == SenderPhone && c.TenantId == TenantId),
             It.IsAny<CancellationToken>()), Times.Once);
@@ -188,61 +192,11 @@ public sealed class BotIntentDispatcherServiceTests
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // ── schedule intent — conflito com template padrão ───────────────────────────
+    // ── schedule intent — conflito → lista interativa (W29) ──────────────────────
 
     [Fact]
-    public async Task DispatchAsync_ScheduleIntent_Conflict_UsesDefaultTemplateWhenSettingsNull()
+    public async Task DispatchAsync_ScheduleIntent_Conflict_ReturnsInteractiveListWithAlternatives()
     {
-        // Arrange — settings não configurado (null): deve usar DefaultConflictTemplate
-        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync((TenantSettings?)null);
-
-        var alternatives = new List<DateTime>
-        {
-            new(2026, 5, 25, 11, 0, 0, DateTimeKind.Utc),
-            new(2026, 5, 25, 14, 0, 0, DateTimeKind.Utc)
-        };
-        _scheduleServiceMock.Setup(s => s.CreateAsync(
-                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", alternatives));
-
-        var ai = FullScheduleIntent();
-
-        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
-
-        Assert.Contains("ocupado", result);
-        Assert.Contains("11:00", result);
-        Assert.Contains("14:00", result);
-        Assert.Contains("Qual desses horários prefere?", result);
-        // Garante que foi ao banco buscar settings
-        _settingsMock.Verify(r => r.GetAsync(It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task DispatchAsync_ScheduleIntent_Conflict_UsesDefaultTemplateWhenTemplateIsNull()
-    {
-        // Settings existe mas ConflictMessageTemplate não foi configurado
-        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TenantSettings { ConflictMessageTemplate = null });
-
-        var alternatives = new List<DateTime> { new(2026, 5, 25, 11, 0, 0, DateTimeKind.Utc) };
-        SetupConflict(alternatives);
-
-        var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
-
-        Assert.Contains(BotIntentDispatcherService.DefaultConflictTemplate
-            .Replace("{alternatives}", "• 25/05/2026 às 11:00").Substring(0, 30), result);
-    }
-
-    [Fact]
-    public async Task DispatchAsync_ScheduleIntent_Conflict_UsesCustomTemplateFromSettings()
-    {
-        // Tenant configurou seu próprio template
-        const string customTemplate = "Opa, esse horário tá cheio! 🔥 Veja as vagas:\n{alternatives}\nFica um?";
-        _settingsMock.Setup(r => r.GetAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TenantSettings { ConflictMessageTemplate = customTemplate });
-
         var alternatives = new List<DateTime>
         {
             new(2026, 5, 25, 11, 0, 0, DateTimeKind.Utc),
@@ -252,24 +206,40 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
 
-        Assert.Contains("cheio! 🔥", result);
-        Assert.Contains("11:00", result);
-        Assert.Contains("14:00", result);
-        Assert.Contains("Fica um?", result);
-        // Template padrão NÃO deve aparecer
-        Assert.DoesNotContain("Qual desses horários prefere?", result);
+        Assert.True(result.HasInteractive);
+        Assert.NotNull(result.InteractiveList);
+        Assert.Contains("ocupado", result.InteractiveList!.Body, StringComparison.OrdinalIgnoreCase);
+        var rows = result.InteractiveList.Sections.SelectMany(s => s.Rows).ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Contains(rows, r => r.RowId == "2026-05-25 11:00");
+        Assert.Contains(rows, r => r.RowId == "2026-05-25 14:00");
+        Assert.Contains(rows, r => r.Title.Contains("11:00"));
+        Assert.Contains(rows, r => r.Title.Contains("14:00"));
     }
 
     [Fact]
-    public async Task DispatchAsync_ScheduleIntent_ConflictWithNoAlternatives_ReturnsNoAlternativesMessage()
+    public async Task DispatchAsync_ScheduleIntent_Conflict_RowIdContainsParsableDateTime()
+    {
+        var alt = new DateTime(2026, 6, 10, 9, 30, 0, DateTimeKind.Utc);
+        SetupConflict(new List<DateTime> { alt });
+
+        var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
+
+        Assert.True(result.HasInteractive);
+        var row = result.InteractiveList!.Sections[0].Rows[0];
+        Assert.Equal("2026-06-10 09:30", row.RowId);
+        Assert.Contains("09:30", row.Title);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ScheduleIntent_ConflictWithNoAlternatives_ReturnsTextMessage()
     {
         SetupConflict(new List<DateTime>());
 
         var result = await _svc.DispatchAsync(FullScheduleIntent(), TenantId, SenderPhone);
 
-        Assert.Contains("não encontrei horários disponíveis", result, StringComparison.OrdinalIgnoreCase);
-        // Sem alternativas: não deve chamar settings
-        _settingsMock.Verify(r => r.GetAsync(It.IsAny<CancellationToken>()), Times.Never);
+        Assert.False(result.HasInteractive);
+        Assert.Contains("não encontrei horários disponíveis", result.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── cancel intent ────────────────────────────────────────────────────────────
@@ -282,7 +252,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
-        Assert.Contains("nenhum agendamento pendente", result);
+        Assert.Contains("nenhum agendamento pendente", result.Text);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(
             It.IsAny<Guid>(), It.IsAny<ScheduleStatus>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -295,7 +265,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
-        Assert.Contains("nenhum agendamento pendente", result);
+        Assert.Contains("nenhum agendamento pendente", result.Text);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(
             It.IsAny<Guid>(), It.IsAny<ScheduleStatus>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -315,9 +285,9 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
-        Assert.Contains("cancelado com sucesso", result);
-        Assert.Contains("26/05/2026", result);
-        Assert.Contains("09:00", result);
+        Assert.Contains("cancelado com sucesso", result.Text);
+        Assert.Contains("26/05/2026", result.Text);
+        Assert.Contains("09:00", result.Text);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(scheduleId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -344,10 +314,10 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(new GeminiIntentResponse { Intent = "cancel", ReplyMessage = "Cancelando..." }, TenantId, SenderPhone);
 
-        Assert.Contains("cancelado com sucesso", result);
-        Assert.Contains("Corte", result);
-        Assert.Contains("26/05/2026", result);
-        Assert.Contains("14:00", result);
+        Assert.Contains("cancelado com sucesso", result.Text);
+        Assert.Contains("Corte", result.Text);
+        Assert.Contains("26/05/2026", result.Text);
+        Assert.Contains("14:00", result.Text);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(scheduleId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -364,7 +334,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Para qual dia e horário?", result);
+        Assert.Equal("Para qual dia e horário?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -378,7 +348,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(FullRescheduleIntent(), TenantId, SenderPhone);
 
-        Assert.Contains("nenhum agendamento pendente", result);
+        Assert.Contains("nenhum agendamento pendente", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -392,7 +362,7 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(FullRescheduleIntent(), TenantId, SenderPhone);
 
-        Assert.Contains("nenhum agendamento pendente", result);
+        Assert.Contains("nenhum agendamento pendente", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -430,10 +400,10 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(FullRescheduleIntent(newStart), TenantId, SenderPhone);
 
-        Assert.Contains("remarcado", result);
-        Assert.Contains("Corte", result);
-        Assert.Contains("28/05/2026", result);
-        Assert.Contains("10:00", result);
+        Assert.Contains("remarcado", result.Text);
+        Assert.Contains("Corte", result.Text);
+        Assert.Contains("28/05/2026", result.Text);
+        Assert.Contains("10:00", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), svcId,
             It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -474,8 +444,9 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(FullRescheduleIntent(newStart), TenantId, SenderPhone);
 
-        Assert.Contains("ocupado", result);
-        Assert.Contains("11:00", result);
+        Assert.True(result.HasInteractive);
+        var rows = result.InteractiveList!.Sections.SelectMany(s => s.Rows).ToList();
+        Assert.Contains(rows, r => r.Title.Contains("11:00"));
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(
             It.IsAny<Guid>(), It.IsAny<ScheduleStatus>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -489,6 +460,7 @@ public sealed class BotIntentDispatcherServiceTests
         _scheduleRepoMock.Object,
         _scheduleServiceMock.Object,
         _settingsMock.Object,
+        _webPushMock.Object,
         new NullLogger<BotIntentDispatcherService>());
 
     private static GeminiIntentResponse FullScheduleIntent() => new()

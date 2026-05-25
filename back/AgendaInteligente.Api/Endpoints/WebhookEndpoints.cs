@@ -43,7 +43,7 @@ public static class WebhookEndpoints
 
             // Fallback síncrono: Redis indisponível — processa e responde diretamente
             var reply = await webhookService.ProcessWhatsAppMessageAsync(tenantId, request, ct);
-            return Results.Ok(new { resposta = reply });
+            return Results.Ok(new { resposta = reply.Text });
         }
         catch (ArgumentException ex)
         {

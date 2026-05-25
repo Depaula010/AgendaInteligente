@@ -1,3 +1,4 @@
+using AgendaInteligente.Api.Contracts.Models;
 using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Domain.Enums;
 using AgendaInteligente.Api.Domain.Exceptions;
@@ -48,7 +49,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         _logger           = logger;
     }
 
-    public Task<string> DispatchAsync(
+    public Task<BotReply> DispatchAsync(
         GeminiIntentResponse aiResponse,
         Guid tenantId,
         string senderPhone,
@@ -59,22 +60,22 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             "schedule"   => HandleScheduleAsync(aiResponse, tenantId, senderPhone, ct),
             "cancel"     => HandleCancelAsync(tenantId, senderPhone, ct),
             "reschedule" => HandleRescheduleAsync(aiResponse, tenantId, senderPhone, ct),
-            _            => Task.FromResult(aiResponse.ReplyMessage)
+            _            => Task.FromResult(BotReply.FromText(aiResponse.ReplyMessage))
         };
     }
 
     // ── schedule intent ──────────────────────────────────────────────────────────
 
-    private async Task<string> HandleScheduleAsync(
+    private async Task<BotReply> HandleScheduleAsync(
         GeminiIntentResponse aiResponse, Guid tenantId, string senderPhone, CancellationToken ct)
     {
         // Guard: date+time devem estar presentes para criar o agendamento
         if (string.IsNullOrWhiteSpace(aiResponse.Date) || string.IsNullOrWhiteSpace(aiResponse.Time))
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
 
         // Guard: serviço deve estar presente
         if (string.IsNullOrWhiteSpace(aiResponse.Service))
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
 
         // Parse da data/hora como UTC
         if (!DateTime.TryParseExact(
@@ -85,7 +86,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             out var startDateTime))
         {
             _logger.LogWarning("Falha ao parsear data/hora da IA. Date={Date}, Time={Time}", aiResponse.Date, aiResponse.Time);
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
         // Resolve serviço por nome (contém, case-insensitive)
@@ -95,7 +96,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         if (service is null)
         {
             _logger.LogInformation("Serviço '{Service}' não encontrado no catálogo ativo.", aiResponse.Service);
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
         // Resolve profissional por nome ou usa o primeiro disponível
@@ -111,7 +112,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         if (professional is null)
         {
             _logger.LogWarning("Nenhum profissional ativo encontrado para TenantId={TenantId}.", tenantId);
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
         // Find-or-create customer pelo telefone (IgnoreQueryFilters — sem JWT no webhook path)
@@ -135,7 +136,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             var pushBody = $"{customer.Name} · {service.Name} · {startDateTime:dd/MM} às {startDateTime:HH:mm}";
             await _webPushService.NotifyAsync(professional.Id, "Novo agendamento", pushBody, ct);
 
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
         catch (ScheduleConflictException ex)
         {
@@ -143,7 +144,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
                 "Conflito de horário via bot. Phone={Phone}, Start={Start}. Alternativas={Count}",
                 senderPhone, startDateTime, ex.SuggestedAlternatives.Count);
 
-            return await BuildConflictMessageAsync(ex, ct);
+            return await BuildConflictReplyAsync(ex, ct);
         }
         catch (Exception ex)
         {
@@ -151,21 +152,21 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
                 "Erro inesperado ao criar agendamento via bot. TenantId={TenantId}, Phone={Phone}",
                 tenantId, senderPhone);
 
-            return "Ops! Ocorreu um erro ao tentar criar seu agendamento. Por favor, tente novamente em instantes.";
+            return BotReply.FromText("Ops! Ocorreu um erro ao tentar criar seu agendamento. Por favor, tente novamente em instantes.");
         }
     }
 
     // ── cancel intent ────────────────────────────────────────────────────────────
 
-    private async Task<string> HandleCancelAsync(Guid tenantId, string senderPhone, CancellationToken ct)
+    private async Task<BotReply> HandleCancelAsync(Guid tenantId, string senderPhone, CancellationToken ct)
     {
         var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct);
         if (customer is null)
-            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
+            return BotReply.FromText("Não encontrei nenhum agendamento pendente ou confirmado para você.");
 
         var upcoming = await _scheduleRepo.GetUpcomingByCustomerIdAsync(customer.Id, ct);
         if (upcoming.Count == 0)
-            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
+            return BotReply.FromText("Não encontrei nenhum agendamento pendente ou confirmado para você.");
 
         var next        = upcoming[0];
         var serviceName = next.Service?.Name;
@@ -178,18 +179,19 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         var cancelBody = $"{customer.Name}{(serviceName is not null ? $" · {serviceName}" : "")} · {next.StartDateTime:dd/MM} às {next.StartDateTime:HH:mm}";
         await _webPushService.NotifyAsync(next.ProfessionalId, "Agendamento cancelado", cancelBody, ct);
 
-        return $"Seu agendamento{(serviceName is not null ? $" de {serviceName}" : "")} do dia " +
-               $"{next.StartDateTime:dd/MM/yyyy} às {next.StartDateTime:HH:mm} foi cancelado com sucesso! " +
-               "Se quiser remarcar, é só me avisar.";
+        return BotReply.FromText(
+            $"Seu agendamento{(serviceName is not null ? $" de {serviceName}" : "")} do dia " +
+            $"{next.StartDateTime:dd/MM/yyyy} às {next.StartDateTime:HH:mm} foi cancelado com sucesso! " +
+            "Se quiser remarcar, é só me avisar.");
     }
 
     // ── reschedule intent ─────────────────────────────────────────────────────────
 
-    private async Task<string> HandleRescheduleAsync(
+    private async Task<BotReply> HandleRescheduleAsync(
         GeminiIntentResponse aiResponse, Guid tenantId, string senderPhone, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(aiResponse.Date) || string.IsNullOrWhiteSpace(aiResponse.Time))
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
 
         if (!DateTime.TryParseExact(
             $"{aiResponse.Date} {aiResponse.Time}",
@@ -199,16 +201,16 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             out var newStart))
         {
             _logger.LogWarning("Falha ao parsear data/hora para reagendamento. Date={Date}, Time={Time}", aiResponse.Date, aiResponse.Time);
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
         var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct);
         if (customer is null)
-            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
+            return BotReply.FromText("Não encontrei nenhum agendamento pendente ou confirmado para você.");
 
         var upcoming = await _scheduleRepo.GetUpcomingByCustomerIdAsync(customer.Id, ct);
         if (upcoming.Count == 0)
-            return "Não encontrei nenhum agendamento pendente ou confirmado para você.";
+            return BotReply.FromText("Não encontrei nenhum agendamento pendente ou confirmado para você.");
 
         var existing = upcoming[0];
 
@@ -224,7 +226,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         if (service is null)
         {
             _logger.LogWarning("Serviço não encontrado para reagendamento. TenantId={TenantId}", tenantId);
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
         // Resolve professional: AI override → inherit from existing appointment
@@ -239,7 +241,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         if (professional is null)
         {
             _logger.LogWarning("Profissional não encontrado para reagendamento. TenantId={TenantId}", tenantId);
-            return aiResponse.ReplyMessage;
+            return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
         // Create new appointment FIRST — only cancel old if successful
@@ -253,14 +255,14 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             _logger.LogInformation(
                 "Conflito de horário no reagendamento via bot. Phone={Phone}, NewStart={Start}. Alternativas={Count}",
                 senderPhone, newStart, ex.SuggestedAlternatives.Count);
-            return await BuildConflictMessageAsync(ex, ct);
+            return await BuildConflictReplyAsync(ex, ct);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
                 "Erro inesperado ao criar novo agendamento no reagendamento. TenantId={TenantId}, Phone={Phone}",
                 tenantId, senderPhone);
-            return "Ops! Ocorreu um erro ao tentar criar seu novo agendamento. Por favor, tente novamente.";
+            return BotReply.FromText("Ops! Ocorreu um erro ao tentar criar seu novo agendamento. Por favor, tente novamente.");
         }
 
         await _scheduleService.UpdateStatusAsync(existing.Id, ScheduleStatus.Cancelled, ct);
@@ -269,26 +271,32 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             "Agendamento reagendado via bot. OldId={OldId}, TenantId={TenantId}, Phone={Phone}, NewStart={Start}",
             existing.Id, tenantId, senderPhone, newStart);
 
-        return $"Pronto! Seu agendamento de {service.Name} foi remarcado para " +
-               $"{newStart:dd/MM/yyyy} às {newStart:HH:mm}. " +
-               "Se precisar de mais alguma coisa, é só avisar!";
+        return BotReply.FromText(
+            $"Pronto! Seu agendamento de {service.Name} foi remarcado para " +
+            $"{newStart:dd/MM/yyyy} às {newStart:HH:mm}. " +
+            "Se precisar de mais alguma coisa, é só avisar!");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────
 
-    private async Task<string> BuildConflictMessageAsync(ScheduleConflictException ex, CancellationToken ct)
+    private async Task<BotReply> BuildConflictReplyAsync(ScheduleConflictException ex, CancellationToken ct)
     {
         if (ex.SuggestedAlternatives.Count == 0)
-            return NoAlternativesMessage;
+            return BotReply.FromText(NoAlternativesMessage);
 
-        var settings = await _settingsRepo.GetAsync(ct);
-        var template = !string.IsNullOrWhiteSpace(settings?.ConflictMessageTemplate)
-            ? settings.ConflictMessageTemplate
-            : DefaultConflictTemplate;
+        var rows = ex.SuggestedAlternatives
+            .Select(alt => new InteractiveSectionRow(
+                RowId:       alt.ToString("yyyy-MM-dd HH:mm"),
+                Title:       alt.ToString("dd/MM 'às' HH:mm"),
+                Description: alt.ToString("dddd", new CultureInfo("pt-BR"))))
+            .ToList();
 
-        var alternativesText = string.Join("\n",
-            ex.SuggestedAlternatives.Select(alt => $"• {alt:dd/MM/yyyy} às {alt:HH:mm}"));
+        var payload = new InteractiveListPayload(
+            Title:      "Horários disponíveis",
+            Body:       "Esse horário está ocupado. Escolha uma das opções disponíveis:",
+            ButtonText: "Ver horários",
+            Sections:   new[] { new InteractiveSection("Próximas vagas", rows) });
 
-        return template.Replace("{alternatives}", alternativesText);
+        return BotReply.FromInteractiveList(payload);
     }
 }

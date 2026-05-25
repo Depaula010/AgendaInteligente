@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using AgendaInteligente.Api.Contracts.Models;
 using AgendaInteligente.Api.Contracts.Reminders;
 using AgendaInteligente.Api.Contracts.Requests.Webhook;
 using AgendaInteligente.Api.Domain.Entities;
@@ -41,7 +42,7 @@ public sealed class WebhookService : IWebhookService
         _logger              = logger;
     }
 
-    public async Task<string> ProcessWhatsAppMessageAsync(Guid tenantId, BotWebhookRequest request, CancellationToken ct = default)
+    public async Task<BotReply> ProcessWhatsAppMessageAsync(Guid tenantId, BotWebhookRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -66,7 +67,7 @@ public sealed class WebhookService : IWebhookService
             _logger.LogWarning(
                 "Mensagem duplicada ignorada. MessageId={MessageId}, TenantId={TenantId}",
                 messageId, tenantId);
-            return string.Empty;
+            return BotReply.Empty;
         }
 
         // 2. B22 — Find-or-create: todo número que entra recebe um Customer
@@ -92,7 +93,7 @@ public sealed class WebhookService : IWebhookService
         if (pendingJson is not null)
         {
             var state = JsonSerializer.Deserialize<PendingReminderState>(pendingJson)!;
-            var (reply, clearKey) = await HandleReminderConfirmationAsync(state, request.Texto, ct);
+            var (replyText, clearKey) = await HandleReminderConfirmationAsync(state, request.Texto, ct);
 
             if (clearKey)
                 await _cache.RemoveAsync(confirmKey, ct);
@@ -101,7 +102,7 @@ public sealed class WebhookService : IWebhookService
                 "Confirmação de lembrete processada. TenantId={TenantId}, ScheduleId={ScheduleId}, ClearKey={Clear}",
                 tenantId, state.ScheduleId, clearKey);
 
-            return reply;
+            return BotReply.FromText(replyText);
         }
 
         // 4. Histórico da conversa — carrega do Redis (chave: chat:{tenantId}:{phone})
@@ -122,22 +123,22 @@ public sealed class WebhookService : IWebhookService
             _logger.LogError(ex,
                 "Falha ao processar mensagem com IA. TenantId={TenantId}, MessageId={MessageId}.",
                 tenantId, messageId);
-            return "Desculpe, ocorreu um erro interno. Por favor, tente novamente em instantes.";
+            return BotReply.FromText("Desculpe, ocorreu um erro interno. Por favor, tente novamente em instantes.");
         }
 
         // 6. Dispatch de intenção — age sobre schedule/cancel ou passa reply da IA inalterado
-        var replyMessage = await _intentDispatcher.DispatchAsync(aiResponse, tenantId, request.NumeroRemetente, ct);
+        var reply = await _intentDispatcher.DispatchAsync(aiResponse, tenantId, request.NumeroRemetente, ct);
 
-        // 7. Persiste histórico (turno atual)
+        // 7. Persiste histórico (turno atual) — armazena texto ou string vazia para interativas
         var updatedHistory = new List<MessageHistory>(history)
         {
             new() { Role = "user",  Content = request.Texto },
-            new() { Role = "model", Content = replyMessage }
+            new() { Role = "model", Content = reply.Text ?? "" }
         };
         await _conversationHistory.SaveHistoryAsync(tenantId, request.NumeroRemetente, updatedHistory, ct);
 
-        // 8. Retorna resposta — o bot recebe via JSON { resposta } e encaminha ao usuário
-        return replyMessage;
+        // 8. Retorna resposta — consumer/endpoint despacha texto ou lista interativa conforme tipo
+        return reply;
     }
 
     // ── Confirmação de lembrete ───────────────────────────────────────────────────

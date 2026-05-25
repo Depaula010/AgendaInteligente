@@ -1,3 +1,4 @@
+using AgendaInteligente.Api.Contracts.Models;
 using AgendaInteligente.Api.Contracts.Requests.Webhook;
 using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Models.AI;
@@ -44,7 +45,7 @@ public sealed class WebhookServiceTests
             .ReturnsAsync(new GeminiIntentResponse { Intent = "general", ReplyMessage = "Posso ajudar com algo?" });
 
         _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("Posso ajudar com algo?");
+            .ReturnsAsync(BotReply.FromText("Posso ajudar com algo?"));
 
         // Default B22: número desconhecido → cria Customer
         _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -115,22 +116,23 @@ public sealed class WebhookServiceTests
     public async Task ProcessWhatsAppMessageAsync_WithValidRequest_ReturnsDispatcherReply()
     {
         _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("Agendamento criado com sucesso!");
+            .ReturnsAsync(BotReply.FromText("Agendamento criado com sucesso!"));
 
         var reply = await _service.ProcessWhatsAppMessageAsync(ValidTenantId, ValidBotRequest());
 
-        Assert.Equal("Agendamento criado com sucesso!", reply);
+        Assert.Equal("Agendamento criado com sucesso!", reply.Text);
     }
 
     [Fact]
-    public async Task ProcessWhatsAppMessageAsync_WhenDuplicateMessage_ReturnsEmptyString()
+    public async Task ProcessWhatsAppMessageAsync_WhenDuplicateMessage_ReturnsEmptyReply()
     {
         _historyMock.Setup(h => h.IsMessageDuplicateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         var reply = await _service.ProcessWhatsAppMessageAsync(ValidTenantId, ValidBotRequest());
 
-        Assert.Equal(string.Empty, reply);
+        Assert.True(string.IsNullOrEmpty(reply.Text));
+        Assert.False(reply.HasInteractive);
     }
 
     // ── Loop completo ────────────────────────────────────────────────────────────
@@ -154,7 +156,7 @@ public sealed class WebhookServiceTests
         GeminiIntentResponse? passedResponse = null;
         _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback<GeminiIntentResponse, Guid, string, CancellationToken>((r, _, _, _) => passedResponse = r)
-            .ReturnsAsync("Posso ajudar com algo?");
+            .ReturnsAsync(BotReply.FromText("Posso ajudar com algo?"));
 
         await _service.ProcessWhatsAppMessageAsync(ValidTenantId, ValidBotRequest());
 
@@ -167,7 +169,7 @@ public sealed class WebhookServiceTests
     {
         var request = ValidBotRequest();
         _dispatcherMock.Setup(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("Posso ajudar com algo?");
+            .ReturnsAsync(BotReply.FromText("Posso ajudar com algo?"));
 
         List<MessageHistory>? savedHistory = null;
         _historyMock.Setup(h => h.SaveHistoryAsync(ValidTenantId, request.NumeroRemetente, It.IsAny<List<MessageHistory>>(), It.IsAny<CancellationToken>()))
@@ -205,7 +207,7 @@ public sealed class WebhookServiceTests
 
         var reply = await _service.ProcessWhatsAppMessageAsync(ValidTenantId, ValidBotRequest());
 
-        Assert.False(string.IsNullOrEmpty(reply));
+        Assert.False(string.IsNullOrEmpty(reply.Text));
         _dispatcherMock.Verify(d => d.DispatchAsync(It.IsAny<GeminiIntentResponse>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
