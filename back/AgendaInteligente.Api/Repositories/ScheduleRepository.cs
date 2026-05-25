@@ -76,6 +76,14 @@ public sealed class ScheduleRepository : IScheduleRepository
         return schedule;
     }
 
+    public async Task<IReadOnlyList<Schedule>> CreateBatchAsync(IEnumerable<Schedule> schedules, CancellationToken ct = default)
+    {
+        var list = schedules.ToList();
+        _db.Schedules.AddRange(list);
+        await _db.SaveChangesAsync(ct);
+        return list;
+    }
+
     public async Task UpdateAsync(Schedule schedule, CancellationToken ct = default)
     {
         schedule.UpdatedAt = DateTime.UtcNow;

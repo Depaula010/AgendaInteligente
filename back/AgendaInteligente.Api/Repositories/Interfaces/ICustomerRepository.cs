@@ -19,4 +19,13 @@ public interface ICustomerRepository
     Task<IReadOnlyList<Customer>> GetPagedAsync(string? search, int skip, int take, CancellationToken ct = default);
 
     Task<int> CountAsync(string? search, CancellationToken ct = default);
+
+    /// <summary>
+    /// Retorna clientes sem visita há mais de <paramref name="inactiveDays"/> dias.
+    /// Considera <see cref="Customer.LastVisitAt"/> se preenchido, caso contrário <see cref="Customer.CreatedAt"/>.
+    /// Ignora o filtro global de tenant.
+    /// </summary>
+    Task<IReadOnlyList<Customer>> GetInactiveAsync(Guid tenantId, int inactiveDays, CancellationToken ct = default);
+
+    Task UpdateAsync(Customer customer, CancellationToken ct = default);
 }

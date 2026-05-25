@@ -1,4 +1,5 @@
 using AgendaInteligente.Api.Contracts.Requests;
+using AgendaInteligente.Api.Domain.Exceptions;
 using AgendaInteligente.Api.Contracts.Responses;
 using AgendaInteligente.Api.Domain.Exceptions;
 using AgendaInteligente.Api.Services.Interfaces;
@@ -110,6 +111,48 @@ public static class ScheduleEndpoints
             var success = await service.DeleteAsync(id, ct);
             return success ? Results.NoContent() : Results.NotFound();
         });
+
+        // ── Recurring schedules (B41) ─────────────────────────────────────────
+        group.MapPost("/recurring", async (
+            [FromBody] CreateRecurringScheduleRequest request,
+            IScheduleService service,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var created = await service.CreateRecurringAsync(
+                    request.CustomerId, request.ProfessionalId, request.ServiceId,
+                    request.StartDateTime, request.RepeatWeeklyCount, request.Notes, ct);
+
+                var response = created.Select(s => new ScheduleResponse(
+                    s.Id, s.CustomerId!.Value, s.ProfessionalId, s.ServiceId!.Value,
+                    s.StartDateTime, s.EndDateTime, s.Status, s.Notes, s.CreatedAt));
+
+                return Results.Ok(response);
+            }
+            catch (ScheduleConflictException ex)
+            {
+                return Results.Conflict(new
+                {
+                    error              = ex.Message,
+                    conflictingDates   = ex.SuggestedAlternatives
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        })
+        .WithName("CreateRecurringSchedule")
+        .WithSummary("Cria agendamentos semanais recorrentes")
+        .Produces<IEnumerable<ScheduleResponse>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict);
 
         // ── Available Slots (B26) ──────────────────────────────────────────────
         group.MapGet("/available", GetAvailableSlotsAsync)

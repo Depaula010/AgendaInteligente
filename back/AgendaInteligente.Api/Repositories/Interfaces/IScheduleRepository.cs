@@ -24,6 +24,13 @@ public interface IScheduleRepository
         Guid professionalId, DateTime start, DateTime end, CancellationToken ct = default);
 
     Task<Schedule> CreateAsync(Schedule schedule, CancellationToken ct = default);
+
+    /// <summary>
+    /// Persiste múltiplos agendamentos em um único <c>SaveChangesAsync</c>.
+    /// Usado pelo CreateRecurringAsync para garantir atomicidade.
+    /// </summary>
+    Task<IReadOnlyList<Schedule>> CreateBatchAsync(IEnumerable<Schedule> schedules, CancellationToken ct = default);
+
     Task UpdateAsync(Schedule schedule, CancellationToken ct = default);
     Task<bool> UpdateStatusAsync(Guid id, ScheduleStatus status, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);

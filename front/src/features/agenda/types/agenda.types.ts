@@ -80,3 +80,17 @@ export interface ConflictInfo {
   error: string
   suggestedAlternatives: string[]
 }
+
+export interface CreateRecurringScheduleRequest {
+  customerId: string
+  professionalId: string
+  serviceId: string
+  startDateTime: string
+  repeatWeeklyCount: number
+  notes?: string
+}
+
+export interface RecurringConflictInfo {
+  error: string
+  conflictingDates: string[]
+}

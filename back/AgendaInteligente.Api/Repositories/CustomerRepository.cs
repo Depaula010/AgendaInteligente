@@ -47,4 +47,21 @@ public sealed class CustomerRepository : ICustomerRepository
 
     public Task<int> CountAsync(string? search, CancellationToken ct = default)
         => ApplySearch(search).CountAsync(ct);
+
+    public async Task<IReadOnlyList<Customer>> GetInactiveAsync(Guid tenantId, int inactiveDays, CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-inactiveDays);
+        var result = await _db.Customers
+            .IgnoreQueryFilters()
+            .Where(c => c.TenantId == tenantId
+                && (c.LastVisitAt != null ? c.LastVisitAt < cutoff : c.CreatedAt < cutoff))
+            .ToListAsync(ct);
+        return result;
+    }
+
+    public async Task UpdateAsync(Customer customer, CancellationToken ct = default)
+    {
+        _db.Customers.Update(customer);
+        await _db.SaveChangesAsync(ct);
+    }
 }

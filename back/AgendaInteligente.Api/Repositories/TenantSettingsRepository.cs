@@ -25,6 +25,13 @@ public sealed class TenantSettingsRepository : ITenantSettingsRepository
               .ToListAsync(ct)
               .ContinueWith(t => (IReadOnlyList<TenantSettings>)t.Result, ct);
 
+    public Task<IReadOnlyList<TenantSettings>> GetAllWithReengagementEnabledAsync(CancellationToken ct = default)
+        => _db.TenantSettings
+              .IgnoreQueryFilters()
+              .Where(s => s.ReengagementInactiveDays > 0)
+              .ToListAsync(ct)
+              .ContinueWith(t => (IReadOnlyList<TenantSettings>)t.Result, ct);
+
     public async Task<TenantSettings> CreateAsync(TenantSettings settings, CancellationToken ct = default)
     {
         _db.TenantSettings.Add(settings);

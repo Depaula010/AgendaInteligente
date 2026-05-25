@@ -11,7 +11,7 @@ import { Input } from '@/shared/components/ui/Input'
 import { Select } from '@/shared/components/ui/Select'
 import { appToast } from '@/shared/lib/toast'
 import { agendaService } from '@/features/agenda/services/agenda.service'
-import type { ConflictInfo, CustomerResponse } from '@/features/agenda/types/agenda.types'
+import type { ConflictInfo, CustomerResponse, RecurringConflictInfo } from '@/features/agenda/types/agenda.types'
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,8 @@ const schema = z
     phone: z.string().min(8, 'Informe o telefone'),
     customerName: z.string().optional(),
     notes: z.string().optional(),
+    recurring: z.boolean(),
+    repeatWeeklyCount: z.number().min(1).max(52),
   })
   .refine(
     () => true,
@@ -47,6 +49,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
   const [foundCustomer, setFoundCustomer] = useState<CustomerResponse | null | undefined>(undefined)
   const [searchingPhone, setSearchingPhone] = useState(false)
   const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null)
+  const [recurringConflict, setRecurringConflict] = useState<RecurringConflictInfo | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
 
   const defaultDate = initialStart
@@ -70,12 +73,15 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
       phone: '',
       customerName: '',
       notes: '',
+      recurring: false,
+      repeatWeeklyCount: 4,
     },
   })
 
   const watchedProfessional = watch('professionalId')
   const watchedService = watch('serviceId')
   const watchedDate = watch('date')
+  const watchedRecurring = watch('recurring')
 
   // Reset slot when inputs change
   useEffect(() => {
@@ -132,6 +138,17 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
         customerId = created.id
       }
 
+      if (values.recurring) {
+        return agendaService.createRecurringSchedule({
+          customerId,
+          professionalId: values.professionalId,
+          serviceId: values.serviceId,
+          startDateTime: values.startDateTime,
+          repeatWeeklyCount: values.repeatWeeklyCount,
+          notes: values.notes || undefined,
+        })
+      }
+
       return agendaService.createSchedule({
         customerId,
         professionalId: values.professionalId,
@@ -142,7 +159,11 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] })
-      appToast.success('Agendamento criado com sucesso!')
+      appToast.success(
+        watch('recurring')
+          ? `${watch('repeatWeeklyCount')} agendamentos recorrentes criados!`
+          : 'Agendamento criado com sucesso!',
+      )
       onClose()
     },
     onError: (err: unknown) => {
@@ -150,10 +171,16 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
         appToast.error('Informe o nome do cliente.')
         return
       }
-      const axiosErr = err as AxiosError<ConflictInfo>
-      if (axiosErr.response?.status === 409 && axiosErr.response.data?.suggestedAlternatives) {
-        setConflictInfo(axiosErr.response.data)
-        return
+      const axiosErr = err as AxiosError<ConflictInfo & RecurringConflictInfo>
+      if (axiosErr.response?.status === 409) {
+        if (axiosErr.response.data?.conflictingDates) {
+          setRecurringConflict(axiosErr.response.data as RecurringConflictInfo)
+          return
+        }
+        if (axiosErr.response.data?.suggestedAlternatives) {
+          setConflictInfo(axiosErr.response.data as ConflictInfo)
+          return
+        }
       }
       appToast.error(appToast.apiError(err, 'Erro ao criar agendamento.'))
     },
@@ -169,7 +196,8 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
       <form
         onSubmit={handleSubmit((values) => {
           setConflictInfo(null)
-          createMutation.mutate(values)
+          setRecurringConflict(null)
+          createMutation.mutate(values as FormValues)
         })}
         className="flex flex-col gap-5"
         noValidate
@@ -377,13 +405,65 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
           error={errors.notes?.message}
         />
 
+        {/* Recurring */}
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              {...register('recurring')}
+              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-500"
+            />
+            <span className="text-sm text-slate-300">Repetir semanalmente</span>
+          </label>
+
+          {watchedRecurring && (
+            <Input
+              {...register('repeatWeeklyCount', { valueAsNumber: true })}
+              id="repeatWeeklyCount"
+              type="number"
+              label="Número de semanas (máx. 52)"
+              min={1}
+              max={52}
+              error={errors.repeatWeeklyCount?.message}
+            />
+          )}
+        </div>
+
+        {/* Recurring conflict banner */}
+        {recurringConflict && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 flex flex-col gap-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-300">{recurringConflict.error}</p>
+            </div>
+            {recurringConflict.conflictingDates.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <p className="text-xs text-slate-400 font-medium">Datas com conflito:</p>
+                <ul className="list-disc list-inside text-xs text-slate-400">
+                  {recurringConflict.conflictingDates.map((d) => (
+                    <li key={d}>
+                      {new Date(d).toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Submit */}
         <div className="flex gap-3 pt-1">
           <Button type="button" variant="ghost" onClick={onClose} className="flex-1">
             Cancelar
           </Button>
           <Button type="submit" isLoading={createMutation.isPending} className="flex-1">
-            Criar agendamento
+            {watchedRecurring ? 'Criar série recorrente' : 'Criar agendamento'}
           </Button>
         </div>
       </form>

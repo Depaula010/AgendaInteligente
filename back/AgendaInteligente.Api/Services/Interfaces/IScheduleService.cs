@@ -65,4 +65,15 @@ public interface IScheduleService
         Guid serviceId,
         DateOnly date,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Cria N agendamentos semanais consecutivos em uma única transação.
+    /// Valida todos os conflitos antes de persistir qualquer registro.
+    /// Lança <see cref="Domain.Exceptions.ScheduleConflictException"/> com as datas conflitantes se houver sobreposição.
+    /// Limite: 52 ocorrências por série.
+    /// </summary>
+    Task<IReadOnlyList<Schedule>> CreateRecurringAsync(
+        Guid customerId, Guid professionalId, Guid serviceId,
+        DateTime firstStart, int repeatWeeklyCount, string? notes = null,
+        CancellationToken ct = default);
 }

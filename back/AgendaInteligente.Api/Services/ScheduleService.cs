@@ -439,6 +439,63 @@ public sealed class ScheduleService : IScheduleService
         return available.AsReadOnly();
     }
 
+    public async Task<IReadOnlyList<Schedule>> CreateRecurringAsync(
+        Guid customerId, Guid professionalId, Guid serviceId,
+        DateTime firstStart, int repeatWeeklyCount, string? notes = null,
+        CancellationToken ct = default)
+    {
+        if (repeatWeeklyCount < 1 || repeatWeeklyCount > 52)
+            throw new ArgumentException("O número de ocorrências deve ser entre 1 e 52.", nameof(repeatWeeklyCount));
+
+        if (firstStart.Kind != DateTimeKind.Utc)
+            firstStart = firstStart.ToUniversalTime();
+
+        var service = await _serviceRepo.GetByIdAsync(serviceId, ct)
+            ?? throw new KeyNotFoundException($"Serviço '{serviceId}' não encontrado ou inativo.");
+
+        var starts = Enumerable.Range(0, repeatWeeklyCount)
+            .Select(i => firstStart.AddDays(7 * i))
+            .ToList();
+
+        // Valida todos os conflitos antes de criar qualquer registro
+        var conflictingDates = new List<DateTime>();
+        foreach (var start in starts)
+        {
+            var end = start.AddMinutes(service.DurationMinutes);
+            var conflicts = await _scheduleRepo.GetConflictingAsync(professionalId, start, end, ct);
+            if (conflicts.Count > 0)
+                conflictingDates.Add(start);
+        }
+
+        if (conflictingDates.Count > 0)
+            throw new ScheduleConflictException(
+                $"Há conflitos em {conflictingDates.Count} data(s) da série recorrente.",
+                conflictingDates);
+
+        var schedules = starts.Select(start => new Schedule
+        {
+            CustomerId     = customerId,
+            ProfessionalId = professionalId,
+            ServiceId      = serviceId,
+            StartDateTime  = start,
+            EndDateTime    = start.AddMinutes(service.DurationMinutes),
+            Status         = ScheduleStatus.Pending,
+            Notes          = notes
+        }).ToList();
+
+        var created = await _scheduleRepo.CreateBatchAsync(schedules, ct);
+
+        _logger.LogInformation(
+            "Série recorrente criada: {Count} agendamentos, Profissional={ProfessionalId}, Início={First}",
+            created.Count, professionalId, firstStart);
+
+        foreach (var s in created)
+            await _syncQueue.EnqueueAsync(
+                new CalendarSyncMessage(s.Id, s.TenantId, CalendarSyncOperation.Upsert), ct);
+
+        return created;
+    }
+
     // ── Helpers privados ─────────────────────────────────────────────────────────
 
     private sealed record WorkingHoursEntry(int DayOfWeek, string OpenTime, string CloseTime);

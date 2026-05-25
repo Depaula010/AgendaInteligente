@@ -906,4 +906,115 @@ public sealed class ScheduleServiceTests
         Assert.Equal(new DateTime(2099, 6, 15, 8,  0,  0, DateTimeKind.Utc), result[0]);
         Assert.Equal(new DateTime(2099, 6, 15, 17, 40, 0, DateTimeKind.Utc), result[^1]);
     }
+
+    // ── B41 — CreateRecurringAsync ────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateRecurringAsync_WithNoConflicts_CreatesAllInstances()
+    {
+        var firstStart = new DateTime(2099, 6, 15, 10, 0, 0, DateTimeKind.Utc);
+        SetupServiceExists(); // 60 min
+        SetupNoConflicts();
+
+        _scheduleRepoMock
+            .Setup(r => r.CreateBatchAsync(It.IsAny<IEnumerable<Schedule>>(), default))
+            .ReturnsAsync((IEnumerable<Schedule> list, CancellationToken _) => list.ToList());
+
+        var result = await _sut.CreateRecurringAsync(
+            CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 4);
+
+        Assert.Equal(4, result.Count);
+        // Datas geradas: +0w, +1w, +2w, +3w
+        for (var i = 0; i < 4; i++)
+            Assert.Equal(firstStart.AddDays(7 * i), result[i].StartDateTime);
+    }
+
+    [Fact]
+    public async Task CreateRecurringAsync_WhenConflictExists_ThrowsScheduleConflictException()
+    {
+        var firstStart = new DateTime(2099, 6, 15, 10, 0, 0, DateTimeKind.Utc);
+        SetupServiceExists();
+
+        // Segunda semana tem conflito
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                firstStart.AddDays(7), firstStart.AddDays(7).AddMinutes(60), default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d != firstStart.AddDays(7)),
+                It.IsAny<DateTime>(), default))
+            .ReturnsAsync([]);
+
+        var ex = await Assert.ThrowsAsync<ScheduleConflictException>(
+            () => _sut.CreateRecurringAsync(
+                CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 3));
+
+        Assert.Contains(firstStart.AddDays(7), ex.SuggestedAlternatives);
+    }
+
+    [Fact]
+    public async Task CreateRecurringAsync_WhenConflictExists_DoesNotCreateAnyInstance()
+    {
+        var firstStart = new DateTime(2099, 6, 15, 10, 0, 0, DateTimeKind.Utc);
+        SetupServiceExists();
+
+        // Primeiro slot conflita
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId, firstStart, It.IsAny<DateTime>(), default))
+            .ReturnsAsync([new Schedule { Id = Guid.NewGuid() }]);
+
+        _scheduleRepoMock
+            .Setup(r => r.GetConflictingAsync(ProfessionalId,
+                It.Is<DateTime>(d => d != firstStart), It.IsAny<DateTime>(), default))
+            .ReturnsAsync([]);
+
+        await Assert.ThrowsAsync<ScheduleConflictException>(
+            () => _sut.CreateRecurringAsync(
+                CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 3));
+
+        // CreateBatchAsync nunca deve ser chamado
+        _scheduleRepoMock.Verify(
+            r => r.CreateBatchAsync(It.IsAny<IEnumerable<Schedule>>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateRecurringAsync_WhenCountExceeds52_ThrowsArgumentException()
+    {
+        SetupServiceExists();
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _sut.CreateRecurringAsync(
+                CustomerId, ProfessionalId, ServiceId,
+                DateTime.UtcNow.AddDays(1), repeatWeeklyCount: 53));
+    }
+
+    [Fact]
+    public async Task CreateRecurringAsync_WhenCountIsZero_ThrowsArgumentException()
+    {
+        SetupServiceExists();
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _sut.CreateRecurringAsync(
+                CustomerId, ProfessionalId, ServiceId,
+                DateTime.UtcNow.AddDays(1), repeatWeeklyCount: 0));
+    }
+
+    [Fact]
+    public async Task CreateRecurringAsync_EnqueuesCalendarSyncForAllInstances()
+    {
+        var firstStart = new DateTime(2099, 6, 15, 10, 0, 0, DateTimeKind.Utc);
+        SetupServiceExists();
+        SetupNoConflicts();
+
+        _scheduleRepoMock
+            .Setup(r => r.CreateBatchAsync(It.IsAny<IEnumerable<Schedule>>(), default))
+            .ReturnsAsync((IEnumerable<Schedule> list, CancellationToken _) => list.ToList());
+
+        await _sut.CreateRecurringAsync(
+            CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 3);
+
+        _syncQueueMock.Verify(q => q.EnqueueAsync(
+            It.Is<CalendarSyncMessage>(m => m.Operation == CalendarSyncOperation.Upsert),
+            default), Times.Exactly(3));
+    }
 }

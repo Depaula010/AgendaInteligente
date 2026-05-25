@@ -22,6 +22,12 @@ public interface ITenantSettingsRepository
     /// </summary>
     Task<IReadOnlyList<TenantSettings>> GetAllWithReminderEnabledAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Retorna todos os TenantSettings com ReengagementInactiveDays &gt; 0 (ignorando o filtro global).
+    /// Usado pelo ReengagementBackgroundService.
+    /// </summary>
+    Task<IReadOnlyList<TenantSettings>> GetAllWithReengagementEnabledAsync(CancellationToken ct = default);
+
     Task<TenantSettings> CreateAsync(TenantSettings settings, CancellationToken ct = default);
     Task UpdateAsync(TenantSettings settings, CancellationToken ct = default);
 }

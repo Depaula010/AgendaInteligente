@@ -2,6 +2,7 @@ import { api } from '@/shared/lib/axios'
 import type {
   AvailableSlotsResponse,
   CreateCustomerRequest,
+  CreateRecurringScheduleRequest,
   CreateScheduleRequest,
   CustomerResponse,
   ProfessionalResponse,
@@ -63,6 +64,11 @@ export const agendaService = {
 
   async updateSchedule(id: string, data: UpdateScheduleRequest): Promise<ScheduleResponse> {
     const res = await api.put<ScheduleResponse>(`/schedules/${id}`, data)
+    return res.data
+  },
+
+  async createRecurringSchedule(data: CreateRecurringScheduleRequest): Promise<ScheduleResponse[]> {
+    const res = await api.post<ScheduleResponse[]>('/schedules/recurring', data)
     return res.data
   },
 

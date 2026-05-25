@@ -1,9 +1,12 @@
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
+using Serilog;
 using AgendaInteligente.Api.Common;
 using AgendaInteligente.Api.Configuration;
 using AgendaInteligente.Api.Data;
 using AgendaInteligente.Api.Endpoints;
+using AgendaInteligente.Api.HealthChecks;
 using AgendaInteligente.Api.MultiTenancy;
 using AgendaInteligente.Api.Repositories;
 using AgendaInteligente.Api.Repositories.Interfaces;
@@ -12,13 +15,19 @@ using AgendaInteligente.Api.Services.BackgroundServices;
 using AgendaInteligente.Api.Services.Interfaces;
 using AgendaInteligente.Api.Services.Redis;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Serilog (B31) ──────────────────────────────────────────────────────────────
+builder.Host.UseSerilog((ctx, loggerConfig) =>
+    loggerConfig.ReadFrom.Configuration(ctx.Configuration));
 
 // ── Infrastructure ─────────────────────────────────────────────────────────────
 builder.Services.AddHttpContextAccessor();
@@ -129,6 +138,10 @@ builder.Services.AddScoped<IWhatsAppNotificationService, WhatsAppNotificationSer
 builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddHostedService<ReminderBackgroundService>();
 
+// Reengajamento automático (B34)
+builder.Services.AddScoped<IReengagementService, ReengagementService>();
+builder.Services.AddHostedService<ReengagementBackgroundService>();
+
 // AI (Gemini)
 builder.Services.Configure<GeminiOptions>(builder.Configuration.GetSection(GeminiOptions.SectionName));
 builder.Services.AddHttpClient<IGeminiService, GeminiService>();
@@ -150,11 +163,35 @@ if (!string.IsNullOrWhiteSpace(encryptionKey))
 else
     builder.Services.AddSingleton<IEncryptionService, NullEncryptionService>();
 
-// ── Rate Limiting (B37) ────────────────────────────────────────────────────────
-// Policy "webhook-per-tenant": limita chamadas por tenantId no route para evitar DoS.
-// Token bucket: 200 tokens iniciais, reabastece 10 tokens a cada 3 segundos (≈ 200/min).
+// ── Health Checks (B32) ───────────────────────────────────────────────────────
+var healthChecks = builder.Services.AddHealthChecks()
+    .AddNpgSql(
+        connectionString,
+        name:    "postgresql",
+        tags:    ["db"],
+        timeout: TimeSpan.FromSeconds(5))
+    .AddCheck<BotHealthCheck>(
+        name:    "whatsapp_bot",
+        tags:    ["external"],
+        timeout: TimeSpan.FromSeconds(6));
+
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    healthChecks.AddRedis(
+        redisConnection,
+        name:    "redis",
+        tags:    ["cache"],
+        timeout: TimeSpan.FromSeconds(5));
+}
+
+builder.Services.AddTransient<BotHealthCheck>();
+
+// ── Rate Limiting (B37 + B30) ─────────────────────────────────────────────────
+// B37: Policy "webhook-per-tenant" — token bucket por tenantId no endpoint de webhook.
+// B30: Policy global por IP — fixed window, proteção geral contra abuso/scraping.
 builder.Services.AddRateLimiter(options =>
 {
+    // B37: webhook por tenant (200 tok, +10 a cada 3 s ≈ 200/min)
     options.AddPolicy("webhook-per-tenant", context =>
     {
         var tenantId = context.Request.RouteValues["tenantId"]?.ToString() ?? "unknown";
@@ -168,10 +205,25 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment     = true,
         });
     });
+
+    // B30: global por IP — fixed window 300 req/min (5 req/s de rajada máx.),
+    // janela de 60 s renovada automaticamente.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+    {
+        var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit         = 300,
+            Window              = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit          = 0,
+        });
+    });
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (ctx, _) =>
     {
-        ctx.HttpContext.Response.Headers.RetryAfter = "3";
+        ctx.HttpContext.Response.Headers.RetryAfter = "60";
         await ctx.HttpContext.Response.WriteAsJsonAsync(new { error = "Muitas requisições. Tente em instantes." });
     };
 });
@@ -219,18 +271,62 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseSerilogRequestLogging(opts =>
+{
+    opts.EnrichDiagnosticContext = (diagCtx, httpCtx) =>
+    {
+        diagCtx.Set("RemoteIpAddress", httpCtx.Connection.RemoteIpAddress?.ToString());
+        diagCtx.Set("UserAgent",       httpCtx.Request.Headers.UserAgent.ToString());
+    };
+    // Silencia health probes para não poluir os logs
+    opts.GetLevel = (ctx, _, _) =>
+        ctx.Request.Path.StartsWithSegments("/health")
+            ? Serilog.Events.LogEventLevel.Debug
+            : Serilog.Events.LogEventLevel.Information;
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 // ── Endpoints ──────────────────────────────────────────────────────────────────
+// /health — liveness probe leve (sem dependências externas)
 app.MapGet("/health", () => Results.Ok(new
 {
-    status = "healthy",
+    status    = "healthy",
     timestamp = DateTime.UtcNow,
-    version = "1.0.0"
+    version   = "1.0.0"
 }))
 .WithName("HealthCheck")
+.WithTags("System")
+.AllowAnonymous();
+
+// /health/detailed — readiness probe com checks de PostgreSQL, Redis e bot
+app.MapHealthChecks("/health/detailed", new HealthCheckOptions
+{
+    AllowCachingResponses = false,
+    ResponseWriter = async (ctx, report) =>
+    {
+        ctx.Response.ContentType = "application/json";
+        var result = new
+        {
+            status    = report.Status.ToString().ToLower(),
+            timestamp = DateTime.UtcNow,
+            duration  = report.TotalDuration.TotalMilliseconds,
+            checks    = report.Entries.ToDictionary(
+                e => e.Key,
+                e => new
+                {
+                    status      = e.Value.Status.ToString().ToLower(),
+                    description = e.Value.Description,
+                    duration    = e.Value.Duration.TotalMilliseconds,
+                    error       = e.Value.Exception?.Message
+                })
+        };
+        await ctx.Response.WriteAsync(JsonSerializer.Serialize(result,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+    }
+})
+.WithName("HealthCheckDetailed")
 .WithTags("System")
 .AllowAnonymous();
 
