@@ -1,3 +1,5 @@
+using System.Text;
+using System.Threading.RateLimiting;
 using AgendaInteligente.Api.Common;
 using AgendaInteligente.Api.Configuration;
 using AgendaInteligente.Api.Data;
@@ -10,10 +12,10 @@ using AgendaInteligente.Api.Services.BackgroundServices;
 using AgendaInteligente.Api.Services.Interfaces;
 using AgendaInteligente.Api.Services.Redis;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
-using System.Text;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -99,6 +101,7 @@ builder.Services.AddScoped<ITenantSettingsService, TenantSettingsService>();
 
 // Auth
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 
 // Webhooks
 builder.Services.AddScoped<IWebhookService, WebhookService>();
@@ -137,6 +140,41 @@ builder.Services.AddSingleton<ICalendarSyncQueue, CalendarSyncQueue>();
 builder.Services.AddTransient<IGoogleCalendarApiService, GoogleCalendarApiService>();
 builder.Services.AddHostedService<GoogleCalendarSyncBackgroundService>();
 
+
+// ── Encryption (B38) ──────────────────────────────────────────────────────────
+// Criptografa dados sensíveis em repouso (ex: GoogleCalendarRefreshToken).
+// Se a chave não estiver configurada, usa NullEncryptionService (passthrough).
+var encryptionKey = builder.Configuration.GetValue<string>("Encryption:Key");
+if (!string.IsNullOrWhiteSpace(encryptionKey))
+    builder.Services.AddSingleton<IEncryptionService>(new AesEncryptionService(encryptionKey));
+else
+    builder.Services.AddSingleton<IEncryptionService, NullEncryptionService>();
+
+// ── Rate Limiting (B37) ────────────────────────────────────────────────────────
+// Policy "webhook-per-tenant": limita chamadas por tenantId no route para evitar DoS.
+// Token bucket: 200 tokens iniciais, reabastece 10 tokens a cada 3 segundos (≈ 200/min).
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("webhook-per-tenant", context =>
+    {
+        var tenantId = context.Request.RouteValues["tenantId"]?.ToString() ?? "unknown";
+        return RateLimitPartition.GetTokenBucketLimiter(tenantId, _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit            = 200,
+            TokensPerPeriod       = 10,
+            ReplenishmentPeriod   = TimeSpan.FromSeconds(3),
+            QueueProcessingOrder  = QueueProcessingOrder.OldestFirst,
+            QueueLimit            = 0,
+            AutoReplenishment     = true,
+        });
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (ctx, _) =>
+    {
+        ctx.HttpContext.Response.Headers.RetryAfter = "3";
+        await ctx.HttpContext.Response.WriteAsJsonAsync(new { error = "Muitas requisições. Tente em instantes." });
+    };
+});
 
 // ── Authentication & Authorization (JWT) ───────────────────────────────────────
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
@@ -181,6 +219,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

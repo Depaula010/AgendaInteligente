@@ -264,6 +264,7 @@ public sealed class ScheduleService : IScheduleService
             try
             {
                 await _waitlistService.ProcessCancellationAsync(
+                    schedule.TenantId,
                     schedule.ProfessionalId,
                     schedule.StartDateTime,
                     schedule.EndDateTime,
@@ -306,6 +307,7 @@ public sealed class ScheduleService : IScheduleService
                 try
                 {
                     await _waitlistService.ProcessCancellationAsync(
+                        schedule.TenantId,
                         schedule.ProfessionalId,
                         schedule.StartDateTime,
                         schedule.EndDateTime,
@@ -351,14 +353,18 @@ public sealed class ScheduleService : IScheduleService
 
         var durationMinutes = service.DurationMinutes;
         var alternatives    = new List<DateTime>();
-        var requestedDate   = requestedTime.Date;
         var settings        = await _settingsRepo.GetAsync(ct);
+        var tz              = GetTenantTimeZone(settings);
+
+        // Usa a data local do tenant para não perder um dia por diferença de UTC
+        var localRequestedTime = TimeZoneInfo.ConvertTimeFromUtc(requestedTime, tz);
+        var requestedLocalDate = DateOnly.FromDateTime(localRequestedTime);
 
         for (var dayOffset = 0; dayOffset <= maxSearchDays && alternatives.Count < count; dayOffset++)
         {
-            var targetDate = requestedDate.AddDays(dayOffset);
+            var targetLocalDate = requestedLocalDate.AddDays(dayOffset);
 
-            var window = ResolveWorkingWindow(targetDate, settings, durationMinutes);
+            var window = ResolveWorkingWindow(targetLocalDate, settings, durationMinutes, tz);
             if (window is null) continue;
 
             var candidates = GenerateDayCandidates(window.Value.Start, window.Value.End, durationMinutes);
@@ -405,9 +411,9 @@ public sealed class ScheduleService : IScheduleService
         var service = await _serviceRepo.GetByIdAsync(serviceId, ct)
             ?? throw new KeyNotFoundException($"Serviço '{serviceId}' não encontrado ou inativo.");
 
-        var settings  = await _settingsRepo.GetAsync(ct);
-        var dateAsUtc = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var window    = ResolveWorkingWindow(dateAsUtc, settings, service.DurationMinutes);
+        var settings = await _settingsRepo.GetAsync(ct);
+        var tz       = GetTenantTimeZone(settings);
+        var window   = ResolveWorkingWindow(date, settings, service.DurationMinutes, tz);
 
         if (window is null)
             return Array.Empty<DateTime>();
@@ -437,25 +443,34 @@ public sealed class ScheduleService : IScheduleService
 
     private sealed record WorkingHoursEntry(int DayOfWeek, string OpenTime, string CloseTime);
 
+    private static TimeZoneInfo GetTenantTimeZone(TenantSettings? settings)
+    {
+        var id = settings?.TimeZoneId;
+        if (string.IsNullOrWhiteSpace(id)) return TimeZoneInfo.Utc;
+        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+        catch { return TimeZoneInfo.Utc; }
+    }
+
     /// <summary>
-    /// Resolve a janela de trabalho (início/fim) para uma data considerando:
-    ///   1. DaysOffJson — se a data for folga explícita, retorna null.
-    ///   2. WorkingHoursJson — usa os horários configurados para o dia da semana;
+    /// Resolve a janela de trabalho (UTC) para uma data local do tenant, considerando:
+    ///   1. DaysOffJson — se a data local for folga, retorna null.
+    ///   2. WorkingHoursJson — usa os horários do dia da semana local;
     ///      se o dia não estiver na lista, o estabelecimento está fechado → null.
     ///   3. WorkingHoursJson vazio ou settings null — fallback 08h–18h todos os dias.
+    /// Os horários resultantes são convertidos para UTC usando o fuso <paramref name="tz"/>.
     /// </summary>
     private static (DateTime Start, DateTime End)? ResolveWorkingWindow(
-        DateTime date, TenantSettings? settings, int durationMinutes)
+        DateOnly localDate, TenantSettings? settings, int durationMinutes, TimeZoneInfo tz)
     {
-        // ── 1. Verifica folgas explícitas ─────────────────────────────────────
+        // ── 1. Verifica folgas explícitas (data local) ────────────────────────
         if (settings?.DaysOffJson is { Length: > 2 } daysOffJson)
         {
             var daysOff = JsonSerializer.Deserialize<List<string>>(daysOffJson, _jsonOpts) ?? [];
-            if (daysOff.Contains(DateOnly.FromDateTime(date).ToString("yyyy-MM-dd")))
+            if (daysOff.Contains(localDate.ToString("yyyy-MM-dd")))
                 return null;
         }
 
-        // ── 2. Resolve horário do dia ─────────────────────────────────────────
+        // ── 2. Resolve horário do dia (usa dia da semana local) ───────────────
         TimeOnly openTime  = new(8,  0);
         TimeOnly closeTime = new(18, 0);
 
@@ -464,7 +479,7 @@ public sealed class ScheduleService : IScheduleService
             var entries = JsonSerializer.Deserialize<List<WorkingHoursEntry>>(hoursJson, _jsonOpts) ?? [];
             if (entries.Count > 0)
             {
-                var dayOfWeek = (int)date.DayOfWeek;
+                var dayOfWeek = (int)localDate.DayOfWeek;
                 var entry     = entries.FirstOrDefault(e => e.DayOfWeek == dayOfWeek);
                 if (entry is null) return null; // dia não está no calendário de trabalho
 
@@ -473,10 +488,13 @@ public sealed class ScheduleService : IScheduleService
             }
         }
 
-        var dayStart = DateTime.SpecifyKind(date.Date.Add(openTime.ToTimeSpan()),  DateTimeKind.Utc);
-        var dayEnd   = DateTime.SpecifyKind(date.Date.Add(closeTime.ToTimeSpan()), DateTimeKind.Utc);
+        // ── 3. Converte horários locais para UTC ──────────────────────────────
+        var localStart = localDate.ToDateTime(openTime);
+        var localEnd   = localDate.ToDateTime(closeTime);
+        var utcStart   = TimeZoneInfo.ConvertTimeToUtc(localStart, tz);
+        var utcEnd     = TimeZoneInfo.ConvertTimeToUtc(localEnd,   tz);
 
-        return (dayStart, dayEnd);
+        return (utcStart, utcEnd);
     }
 
     /// <summary>

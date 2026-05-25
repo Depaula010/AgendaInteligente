@@ -10,5 +10,6 @@ public record TenantSettingsResponse(
     string? WhatsAppPhoneNumber,
     string? ConflictMessageTemplate,
     bool HasGeminiApiKey,
-    string GeminiModel
+    string GeminiModel,
+    string TimeZoneId
 );

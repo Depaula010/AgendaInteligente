@@ -1,4 +1,6 @@
 using AgendaInteligente.Api.MultiTenancy;
+using AgendaInteligente.Api.Services;
+using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
@@ -45,7 +47,7 @@ public sealed class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
         // NullTenantProvider → CurrentTenantId = null
         // O Global Query Filter interpreta null como "sem filtro", o que é
         // correto e seguro para execução de migrations fora do contexto HTTP.
-        return new AppDbContext(options, new NullTenantProvider());
+        return new AppDbContext(options, new NullTenantProvider(), new NullEncryptionService());
     }
 }
 

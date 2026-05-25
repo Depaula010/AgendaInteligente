@@ -26,7 +26,8 @@ public static class TenantSettingsEndpoints
                 settings.BotDisplayName, settings.WhatsAppPhoneNumber,
                 settings.ConflictMessageTemplate,
                 HasGeminiApiKey: !string.IsNullOrEmpty(settings.GeminiApiKey),
-                GeminiModel: settings.GeminiModel);
+                GeminiModel: settings.GeminiModel,
+                TimeZoneId: settings.TimeZoneId);
 
             return Results.Ok(response);
         });
@@ -55,6 +56,8 @@ public static class TenantSettingsEndpoints
                     newSettings.GeminiApiKey = string.IsNullOrEmpty(request.GeminiApiKey) ? null : request.GeminiApiKey;
                 if (request.GeminiModel is not null)
                     newSettings.GeminiModel = request.GeminiModel;
+                if (request.TimeZoneId is not null)
+                    newSettings.TimeZoneId = request.TimeZoneId;
 
                 settings = await service.CreateAsync(newSettings, ct);
             }
@@ -76,6 +79,8 @@ public static class TenantSettingsEndpoints
                         : request.GeminiApiKey;
                 if (request.GeminiModel is not null)
                     existingSettings.GeminiModel = request.GeminiModel;
+                if (request.TimeZoneId is not null)
+                    existingSettings.TimeZoneId = request.TimeZoneId;
 
                 settings = await service.UpdateAsync(existingSettings, ct);
             }
@@ -86,7 +91,8 @@ public static class TenantSettingsEndpoints
                 settings.BotDisplayName, settings.WhatsAppPhoneNumber,
                 settings.ConflictMessageTemplate,
                 HasGeminiApiKey: !string.IsNullOrEmpty(settings.GeminiApiKey),
-                GeminiModel: settings.GeminiModel);
+                GeminiModel: settings.GeminiModel,
+                TimeZoneId: settings.TimeZoneId);
 
             return Results.Ok(response);
         });

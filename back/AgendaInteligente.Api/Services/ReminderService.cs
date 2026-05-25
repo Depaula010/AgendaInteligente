@@ -88,11 +88,14 @@ public sealed class ReminderService : IReminderService
             "TenantId={TenantId}: {Count} agendamento(s) na janela de lembrete.",
             tenantId, schedules.Count);
 
+        var settings = await _settingsRepo.GetByTenantIdAsync(tenantId, ct);
+        var tz       = GetTenantTimeZone(settings);
+
         foreach (var schedule in schedules)
-            await TrySendAsync(tenantId, schedule, ct);
+            await TrySendAsync(tenantId, schedule, tz, ct);
     }
 
-    private async Task TrySendAsync(Guid tenantId, Schedule schedule, CancellationToken ct)
+    private async Task TrySendAsync(Guid tenantId, Schedule schedule, TimeZoneInfo tz, CancellationToken ct)
     {
         var phone = schedule.Customer?.PhoneNumber;
         if (string.IsNullOrWhiteSpace(phone))
@@ -112,9 +115,9 @@ public sealed class ReminderService : IReminderService
         var customerName     = schedule.Customer!.Name ?? phone;
         var serviceName      = schedule.Service?.Name      ?? "serviço";
         var professionalName = schedule.Professional?.Name ?? "profissional";
-        var start            = schedule.StartDateTime;
+        var startLocal       = TimeZoneInfo.ConvertTimeFromUtc(schedule.StartDateTime, tz);
 
-        var message = BuildMessage(customerName, serviceName, professionalName, start);
+        var message = BuildMessage(customerName, serviceName, professionalName, startLocal);
         var sent    = await _sendService.SendTextMessageAsync(tenantId, phone, message, ct);
 
         if (!sent)
@@ -126,7 +129,7 @@ public sealed class ReminderService : IReminderService
 
         await _cache.SetStringAsync(sentKey, "1", SentTtl, ct);
 
-        var state      = new PendingReminderState(schedule.Id, tenantId, phone, start, serviceName, professionalName);
+        var state      = new PendingReminderState(schedule.Id, tenantId, phone, startLocal, serviceName, professionalName);
         var confirmKey = $"reminder:confirm:{tenantId}:{phone}";
         await _cache.SetStringAsync(confirmKey, JsonSerializer.Serialize(state), ConfirmTtl, ct);
 
@@ -144,4 +147,12 @@ public sealed class ReminderService : IReminderService
            "1 - Confirmar\n" +
            "2 - Remarcar\n" +
            "3 - Cancelar";
+
+    private static TimeZoneInfo GetTenantTimeZone(TenantSettings? settings)
+    {
+        var id = settings?.TimeZoneId;
+        if (string.IsNullOrWhiteSpace(id)) return TimeZoneInfo.Utc;
+        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+        catch { return TimeZoneInfo.Utc; }
+    }
 }

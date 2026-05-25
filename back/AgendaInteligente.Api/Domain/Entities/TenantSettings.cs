@@ -68,6 +68,13 @@ public sealed class TenantSettings : IMustHaveTenant
     /// </summary>
     public string? ConflictMessageTemplate { get; set; }
 
+    // ── Fuso Horário ──────────────────────────────────────────────────────────
+    /// <summary>
+    /// IANA timezone ID do estabelecimento. Usado para converter slots UTC para horário local.
+    /// Ex: "America/Sao_Paulo", "America/Manaus".
+    /// </summary>
+    public string TimeZoneId { get; set; } = "America/Sao_Paulo";
+
     // ── Integração WhatsApp Bot ────────────────────────────────────────────────
     /// <summary>
     /// ID da sessão no bot Node.js (Baileys). Null até o WhatsApp ser vinculado via B24.

@@ -53,6 +53,11 @@ public sealed class TenantSettingsConfiguration : IEntityTypeConfiguration<Tenan
             .HasMaxLength(100)
             .HasDefaultValue("gemini-2.5-flash-lite");
 
+        builder.Property(ts => ts.TimeZoneId)
+            .IsRequired()
+            .HasMaxLength(100)
+            .HasDefaultValue("America/Sao_Paulo");
+
         builder.Property(ts => ts.CreatedAt)
             .IsRequired();
 

@@ -32,6 +32,7 @@ public sealed class WaitlistService : IWaitlistService
 
     /// <inheritdoc/>
     public async Task ProcessCancellationAsync(
+        Guid tenantId,
         Guid professionalId,
         DateTime freedSlotStart,
         DateTime freedSlotEnd,
@@ -92,10 +93,11 @@ public sealed class WaitlistService : IWaitlistService
                 }
 
                 await _whatsAppNotifier.SendWaitlistNotificationAsync(
+                    tenantId,
                     customerPhone,
                     customerName,
                     freedSlotStart,
-                    professionalName: "o profissional", // Profissional não carregado via Include aqui; será melhorado com EagerLoading futuro
+                    professionalName: "o profissional",
                     ct);
 
                 _logger.LogInformation(

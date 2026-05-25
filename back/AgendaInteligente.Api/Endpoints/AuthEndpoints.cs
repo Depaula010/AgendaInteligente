@@ -28,5 +28,34 @@ public static class AuthEndpoints
         })
         .WithName("Login")
         .AllowAnonymous();
+
+        group.MapPost("/forgot-password", async (
+            [FromBody] ForgotPasswordRequest request,
+            [FromServices] IPasswordResetService svc,
+            CancellationToken ct) =>
+        {
+            await svc.ForgotPasswordAsync(request.Email, ct);
+            return Results.Ok(new { message = "Se o e-mail estiver cadastrado, você receberá as instruções em breve." });
+        })
+        .WithName("ForgotPassword")
+        .AllowAnonymous();
+
+        group.MapPost("/reset-password", async (
+            [FromBody] ResetPasswordRequest request,
+            [FromServices] IPasswordResetService svc,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await svc.ResetPasswordAsync(request.Token, request.NewPassword, ct);
+                return Results.Ok(new { message = "Senha redefinida com sucesso." });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        })
+        .WithName("ResetPassword")
+        .AllowAnonymous();
     }
 }

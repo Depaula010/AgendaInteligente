@@ -41,7 +41,7 @@ public sealed class ScheduleServiceTests
         // Configura o mock da waitlist para não fazer nada por padrão (não afeta testes existentes)
         _waitlistSvcMock
             .Setup(w => w.ProcessCancellationAsync(
-                It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), default))
             .Returns(Task.CompletedTask);
 
         _sut = new ScheduleService(
@@ -599,7 +599,7 @@ public sealed class ScheduleServiceTests
 
         // Assert — deve acionar a lista de espera com os dados do slot liberado
         _waitlistSvcMock.Verify(w => w.ProcessCancellationAsync(
-            ProfessionalId, start, start.AddHours(1), default), Times.Once);
+            It.IsAny<Guid>(), ProfessionalId, start, start.AddHours(1), default), Times.Once);
     }
 
     [Fact]
@@ -624,7 +624,7 @@ public sealed class ScheduleServiceTests
 
         // Assert — lista de espera deve ter sido acionada
         _waitlistSvcMock.Verify(w => w.ProcessCancellationAsync(
-            ProfessionalId, start, start.AddHours(1), default), Times.Once);
+            It.IsAny<Guid>(), ProfessionalId, start, start.AddHours(1), default), Times.Once);
     }
 
     [Fact]
@@ -641,7 +641,7 @@ public sealed class ScheduleServiceTests
 
         // Assert — nenhuma chamada à lista de espera para status não-cancelamento
         _waitlistSvcMock.Verify(w => w.ProcessCancellationAsync(
-            It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), default), Times.Never);
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), default), Times.Never);
     }
 
     // ── Blockouts (Folgas) ─────────────────────────────────────────────────────
@@ -845,7 +845,8 @@ public sealed class ScheduleServiceTests
         var dayOfWeek = (int)new DateTime(2099, 6, 15).DayOfWeek;
         var settings  = new TenantSettings
         {
-            WorkingHoursJson = $"[{{\"dayOfWeek\":{dayOfWeek},\"openTime\":\"09:00\",\"closeTime\":\"22:00\"}}]"
+            WorkingHoursJson = $"[{{\"dayOfWeek\":{dayOfWeek},\"openTime\":\"09:00\",\"closeTime\":\"22:00\"}}]",
+            TimeZoneId = "UTC"
         };
         _settingsRepoMock.Setup(r => r.GetAsync(default)).ReturnsAsync(settings);
 

@@ -75,16 +75,16 @@ public sealed class WaitlistServiceTests
 
         _whatsAppMock
             .Setup(w => w.SendWaitlistNotificationAsync(
-                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<DateTime>(), It.IsAny<string>(), default))
             .Returns(Task.CompletedTask);
 
         // Act — não deve lançar exceção
-        await _sut.ProcessCancellationAsync(ProfessionalId, freedStart, freedEnd);
+        await _sut.ProcessCancellationAsync(TenantId, ProfessionalId, freedStart, freedEnd);
 
         // Assert — notificação enviada para os 2 clientes
         _whatsAppMock.Verify(w => w.SendWaitlistNotificationAsync(
-            It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
             freedStart, It.IsAny<string>(), default),
             Times.Exactly(2));
     }
@@ -108,12 +108,12 @@ public sealed class WaitlistServiceTests
 
         _whatsAppMock
             .Setup(w => w.SendWaitlistNotificationAsync(
-                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<DateTime>(), It.IsAny<string>(), default))
             .Returns(Task.CompletedTask);
 
         // Act
-        await _sut.ProcessCancellationAsync(ProfessionalId, freedStart, freedEnd);
+        await _sut.ProcessCancellationAsync(TenantId, ProfessionalId, freedStart, freedEnd);
 
         // Assert — status deve ter sido alterado para Notified antes do envio
         _waitlistRepoMock.Verify(r => r.UpdateAsync(
@@ -135,11 +135,11 @@ public sealed class WaitlistServiceTests
             .ReturnsAsync(new List<Waitlist>());
 
         // Act
-        await _sut.ProcessCancellationAsync(ProfessionalId, freedStart, freedEnd);
+        await _sut.ProcessCancellationAsync(TenantId, ProfessionalId, freedStart, freedEnd);
 
         // Assert — nenhuma notificação enviada e nenhum update feito
         _whatsAppMock.Verify(w => w.SendWaitlistNotificationAsync(
-            It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), default), Times.Never);
 
         _waitlistRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Waitlist>(), default), Times.Never);
@@ -160,7 +160,7 @@ public sealed class WaitlistServiceTests
 
         // Act — deve engolir a exceção sem propagá-la (cancelamento não deve ser revertido)
         var exception = await Record.ExceptionAsync(
-            () => _sut.ProcessCancellationAsync(ProfessionalId, freedStart, freedEnd));
+            () => _sut.ProcessCancellationAsync(TenantId, ProfessionalId, freedStart, freedEnd));
 
         // Assert — nenhuma exceção propagada
         Assert.Null(exception);
@@ -188,20 +188,20 @@ public sealed class WaitlistServiceTests
 
         _whatsAppMock
             .Setup(w => w.SendWaitlistNotificationAsync(
-                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<DateTime>(), It.IsAny<string>(), default))
             .Returns(Task.CompletedTask);
 
         // Act
-        await _sut.ProcessCancellationAsync(ProfessionalId, freedStart, freedEnd);
+        await _sut.ProcessCancellationAsync(TenantId, ProfessionalId, freedStart, freedEnd);
 
         // Assert — notificação enviada apenas para o cliente com telefone
         _whatsAppMock.Verify(w => w.SendWaitlistNotificationAsync(
-            "+5511777777777", It.IsAny<string>(),
+            It.IsAny<Guid>(), "+5511777777777", It.IsAny<string>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), default), Times.Once);
 
         _whatsAppMock.Verify(w => w.SendWaitlistNotificationAsync(
-            "", It.IsAny<string>(),
+            It.IsAny<Guid>(), "", It.IsAny<string>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), default), Times.Never);
     }
 
@@ -229,14 +229,14 @@ public sealed class WaitlistServiceTests
         // Primeiro cliente: falha no envio; segundo: sucesso
         _whatsAppMock
             .SetupSequence(w => w.SendWaitlistNotificationAsync(
-                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<DateTime>(), It.IsAny<string>(), default))
             .ThrowsAsync(new Exception("Timeout no WhatsApp"))
             .Returns(Task.CompletedTask);
 
         // Act — não deve propagar a exceção
         var exception = await Record.ExceptionAsync(
-            () => _sut.ProcessCancellationAsync(ProfessionalId, freedStart, freedEnd));
+            () => _sut.ProcessCancellationAsync(TenantId, ProfessionalId, freedStart, freedEnd));
 
         // Assert
         Assert.Null(exception);
@@ -246,7 +246,7 @@ public sealed class WaitlistServiceTests
 
         // Tentativa de envio foi feita para os dois
         _whatsAppMock.Verify(w => w.SendWaitlistNotificationAsync(
-            It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<DateTime>(), It.IsAny<string>(), default), Times.Exactly(2));
     }
 }

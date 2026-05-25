@@ -18,6 +18,7 @@ public interface IWaitlistService
     /// <param name="freedSlotEnd">Fim do horário que ficou livre (UTC).</param>
     /// <param name="ct">Cancellation token.</param>
     Task ProcessCancellationAsync(
+        Guid tenantId,
         Guid professionalId,
         DateTime freedSlotStart,
         DateTime freedSlotEnd,

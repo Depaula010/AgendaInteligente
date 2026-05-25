@@ -1,19 +1,26 @@
 using AgendaInteligente.Api.Domain.Entities;
 using AgendaInteligente.Api.Domain.Interfaces;
 using AgendaInteligente.Api.MultiTenancy;
+using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 
 namespace AgendaInteligente.Api.Data;
 
 public sealed class AppDbContext : DbContext
 {
-    private readonly ITenantProvider _tenantProvider;
+    private readonly ITenantProvider    _tenantProvider;
+    private readonly IEncryptionService _encryption;
 
-    public AppDbContext(DbContextOptions<AppDbContext> options, ITenantProvider tenantProvider)
+    public AppDbContext(
+        DbContextOptions<AppDbContext> options,
+        ITenantProvider tenantProvider,
+        IEncryptionService encryption)
         : base(options)
     {
         _tenantProvider = tenantProvider;
+        _encryption     = encryption;
     }
 
     // ── DbSets ─────────────────────────────────────────────────────────────────
@@ -33,6 +40,17 @@ public sealed class AppDbContext : DbContext
 
         // Aplica automaticamente todos os IEntityTypeConfiguration<T> da assembly
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // ── Criptografia em repouso: GoogleCalendarRefreshToken (B38) ─────────
+        // ValueConverter criptografa no WRITE e decriptografa no READ.
+        // NullEncryptionService é passthrough (dev/CI sem chave configurada).
+        var tokenConverter = new ValueConverter<string?, string?>(
+            v => _encryption.Encrypt(v),
+            v => _encryption.Decrypt(v));
+
+        modelBuilder.Entity<Professional>()
+            .Property(p => p.GoogleCalendarRefreshToken)
+            .HasConversion(tokenConverter);
 
         // ── Global Query Filters: Isolamento Multi-Tenant ─────────────────────
         // Todas as queries nas entidades abaixo são automaticamente filtradas pelo

@@ -17,6 +17,7 @@ public interface IWhatsAppNotificationService
     /// <param name="professionalName">Nome do profissional que atenderá.</param>
     /// <param name="ct">Cancellation token.</param>
     Task SendWaitlistNotificationAsync(
+        Guid tenantId,
         string customerPhone,
         string customerName,
         DateTime availableSlot,

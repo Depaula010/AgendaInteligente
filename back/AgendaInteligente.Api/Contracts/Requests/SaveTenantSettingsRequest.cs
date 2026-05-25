@@ -15,5 +15,7 @@ public record SaveTenantSettingsRequest(
     /// <summary>null = não alterar; "" = remover; valor = definir nova chave</summary>
     string? GeminiApiKey = null,
     /// <summary>null = não alterar</summary>
-    string? GeminiModel = null
+    string? GeminiModel = null,
+    /// <summary>IANA timezone ID. Ex: "America/Sao_Paulo". null = não alterar.</summary>
+    string? TimeZoneId = null
 );

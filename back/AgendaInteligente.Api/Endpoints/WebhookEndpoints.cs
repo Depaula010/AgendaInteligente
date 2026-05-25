@@ -2,6 +2,7 @@ using AgendaInteligente.Api.Contracts.Requests.Webhook;
 using AgendaInteligente.Api.Filters;
 using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AgendaInteligente.Api.Endpoints;
 
@@ -11,19 +12,22 @@ public static class WebhookEndpoints
     {
         var group = app.MapGroup("/api/v1/webhooks")
             .WithTags("Webhooks")
-            .AddEndpointFilter<ApiKeyAuthFilter>();
+            .AddEndpointFilter<ApiKeyAuthFilter>()
+            .AddEndpointFilter<WebhookHmacFilter>();
 
         group.MapPost("/whatsapp/{tenantId:guid}", ProcessWhatsAppWebhookAsync)
             .WithName("ProcessWhatsAppWebhook")
             .WithSummary("Recebe mensagens do WhatsApp via bot Node.js")
             .WithDescription(
-                "Endpoint protegido por X-Api-Key. Recebe { texto, numero_remetente } do bot. " +
+                "Endpoint protegido por X-Api-Key + HMAC. Recebe { texto, numero_remetente } do bot. " +
                 "Se Redis estiver disponível: publica no stream whatsapp:inbound e retorna 202 (processamento assíncrono). " +
                 "Fallback síncrono quando Redis indisponível: processa via IA e retorna { resposta }.")
             .Produces<object>(StatusCodes.Status200OK)
             .Produces<object>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .RequireRateLimiting("webhook-per-tenant");
     }
 
     private static async Task<IResult> ProcessWhatsAppWebhookAsync(

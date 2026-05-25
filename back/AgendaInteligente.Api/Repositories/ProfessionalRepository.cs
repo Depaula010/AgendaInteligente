@@ -36,6 +36,11 @@ public sealed class ProfessionalRepository : IProfessionalRepository
               .IgnoreQueryFilters()
               .FirstOrDefaultAsync(p => p.Email.ToLower() == email.ToLower(), ct);
 
+    public Task<Professional?> GetByIdIgnoringQueryFilterAsync(Guid id, CancellationToken ct = default)
+        => _db.Professionals
+              .IgnoreQueryFilters()
+              .FirstOrDefaultAsync(p => p.Id == id, ct);
+
     public async Task<Professional> CreateAsync(Professional professional, CancellationToken ct = default)
     {
         _db.Professionals.Add(professional);
