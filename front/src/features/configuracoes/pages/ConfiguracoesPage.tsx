@@ -3,14 +3,16 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bot, BrainCircuit, Clock, Info, Lock, Settings, X } from 'lucide-react'
+import { Bot, BrainCircuit, Clock, Globe, Info, Lock, Settings, X } from 'lucide-react'
 import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
+import { Select } from '@/shared/components/ui/Select'
 import { Skeleton } from '@/shared/components/ui/Skeleton'
 import { appToast } from '@/shared/lib/toast'
 import { useAuthStore } from '@/features/auth/store/authStore'
 import { configuracoesService } from '@/features/configuracoes/services/configuracoes.service'
 import type { WorkingHourEntry, SaveTenantSettingsRequest } from '@/features/configuracoes/types/configuracoes.types'
+import { BRAZIL_TIMEZONES } from '@/features/configuracoes/types/configuracoes.types'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,7 @@ const schema = z.object({
   reminderLeadTimeHours:    z.number({ error: 'Informe um número' }).int().min(0, 'Mínimo 0'),
   reengagementInactiveDays: z.number({ error: 'Informe um número' }).int().min(0, 'Mínimo 0'),
   geminiModel:              z.string().min(1, 'Informe o modelo'),
+  timeZoneId:               z.string().min(1, 'Selecione um fuso horário'),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -91,6 +94,7 @@ export function ConfiguracoesPage() {
       reminderLeadTimeHours:    24,
       reengagementInactiveDays: 30,
       geminiModel:              'gemini-2.5-flash-lite',
+      timeZoneId:               'America/Sao_Paulo',
     },
   })
 
@@ -135,6 +139,7 @@ export function ConfiguracoesPage() {
       reminderLeadTimeHours:    settings.reminderLeadTimeHours,
       reengagementInactiveDays: settings.reengagementInactiveDays,
       geminiModel:              settings.geminiModel || 'gemini-2.5-flash-lite',
+      timeZoneId:               settings.timeZoneId  || 'America/Sao_Paulo',
     })
   }, [settings, reset])
 
@@ -168,6 +173,7 @@ export function ConfiguracoesPage() {
       whatsAppPhoneNumber:      values.whatsAppPhoneNumber || undefined,
       conflictMessageTemplate:  values.conflictMessageTemplate || undefined,
       geminiModel:              values.geminiModel,
+      timeZoneId:               values.timeZoneId,
       ...(geminiKeyChanged ? { geminiApiKey: geminiKey } : {}),
     }
 
@@ -246,6 +252,19 @@ export function ConfiguracoesPage() {
       )}
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+
+        {/* ── Fuso horário ── */}
+        <SectionCard icon={Globe} title="Fuso horário">
+          <Select
+            {...register('timeZoneId')}
+            id="timeZoneId"
+            label="Fuso horário do estabelecimento"
+            options={BRAZIL_TIMEZONES.map((tz) => ({ value: tz.value, label: tz.label }))}
+            disabled={!isOwner}
+            error={errors.timeZoneId?.message}
+            hint="Afeta o cálculo de slots disponíveis e o horário dos lembretes."
+          />
+        </SectionCard>
 
         {/* ── Horário de funcionamento ── */}
         <SectionCard icon={Clock} title="Horário de funcionamento">

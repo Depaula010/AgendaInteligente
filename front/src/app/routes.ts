@@ -1,6 +1,8 @@
 export const ROUTES = {
   LOGIN: '/login',
   REGISTER: '/cadastro',
+  FORGOT_PASSWORD: '/esqueci-senha',
+  RESET_PASSWORD: '/redefinir-senha',
   DASHBOARD: '/dashboard',
   AGENDA: '/dashboard/agenda',
   CLIENTES: '/dashboard/clientes',

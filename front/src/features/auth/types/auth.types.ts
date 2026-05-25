@@ -3,6 +3,15 @@ export interface LoginRequest {
   password: string
 }
 
+export interface ForgotPasswordRequest {
+  email: string
+}
+
+export interface ResetPasswordRequest {
+  token: string
+  newPassword: string
+}
+
 export interface RegisterRequest {
   businessName: string
   ownerName: string
