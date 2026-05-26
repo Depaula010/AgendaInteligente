@@ -63,7 +63,7 @@ public sealed class ScheduleService : IScheduleService
     public async Task<Schedule> CreateAsync(
         Guid customerId, Guid professionalId, Guid serviceId,
         DateTime startDateTime, string? notes = null,
-        CancellationToken ct = default)
+        Guid? tenantId = null, CancellationToken ct = default)
     {
         // 1. Garante que a data está em UTC
         if (startDateTime.Kind != DateTimeKind.Utc)
@@ -109,7 +109,10 @@ public sealed class ScheduleService : IScheduleService
             StartDateTime  = startDateTime,
             EndDateTime    = endDateTime,
             Status         = ScheduleStatus.Pending,
-            Notes          = notes
+            Notes          = notes,
+            // Se tenantId for fornecido explicitamente (path sem HttpContext, e.g. bot),
+            // set aqui — o auto-fill do AppDbContext só funciona com HttpContextTenantProvider ativo.
+            TenantId       = tenantId.GetValueOrDefault()
         };
 
         _logger.LogInformation(

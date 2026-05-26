@@ -38,8 +38,9 @@ public sealed class WebhookHmacFilter : IEndpointFilter
             return Results.Unauthorized();
         }
 
-        // Habilita leitura múltipla do body (necessário porque o model binder também o lê)
-        request.EnableBuffering();
+        // EnableBuffering() já foi chamado no middleware global em Program.cs.
+        // O model binding (que ocorre antes dos endpoint filters no Minimal API)
+        // leu o body para o FileBufferingReadStream; aqui apenas rebobinamos.
         request.Body.Position = 0;
 
         using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
@@ -47,12 +48,26 @@ public sealed class WebhookHmacFilter : IEndpointFilter
         request.Body.Position = 0;
 
         var expectedSignature = ComputeHmac(body, _signatureKey);
+        var receivedStr       = receivedSignature.ToString().Trim();
 
-        if (!CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(receivedSignature.ToString()),
-                Encoding.UTF8.GetBytes(expectedSignature)))
+        _logger.LogDebug(
+            "HMAC check — bodyLen={BodyLen} bodyPreview={BodyPreview} receivedLen={RcvLen} expectedLen={ExpLen} match={Match}",
+            body.Length,
+            body[..Math.Min(80, body.Length)],
+            receivedStr.Length, expectedSignature.Length,
+            string.Equals(receivedStr, expectedSignature, StringComparison.Ordinal));
+
+        var receivedBytes = Encoding.UTF8.GetBytes(receivedStr);
+        var expectedBytes = Encoding.UTF8.GetBytes(expectedSignature);
+
+        if (receivedBytes.Length != expectedBytes.Length ||
+            !CryptographicOperations.FixedTimeEquals(receivedBytes, expectedBytes))
         {
-            _logger.LogWarning("Assinatura HMAC do webhook inválida. Header recebido não confere.");
+            _logger.LogWarning(
+                "Assinatura HMAC do webhook inválida. bodyLen={BodyLen} received={Received} expected={Expected}",
+                body.Length,
+                receivedStr[..Math.Min(8, receivedStr.Length)] + "…",
+                expectedSignature[..Math.Min(8, expectedSignature.Length)] + "…");
             return Results.Unauthorized();
         }
 

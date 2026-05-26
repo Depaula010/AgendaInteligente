@@ -55,6 +55,10 @@ public sealed class WebhookService : IWebhookService
         if (string.IsNullOrWhiteSpace(request.Texto))
             throw new ArgumentException("Texto é obrigatório.", nameof(request.Texto));
 
+        // Normaliza JIDs do WhatsApp (ex: "553194001072@s.whatsapp.net" → "553194001072")
+        if (request.NumeroRemetente.Contains('@'))
+            request.NumeroRemetente = request.NumeroRemetente.Split('@')[0];
+
         var messageId = GenerateMessageId(tenantId, request.NumeroRemetente, request.Texto);
 
         _logger.LogInformation(
@@ -129,11 +133,16 @@ public sealed class WebhookService : IWebhookService
         // 6. Dispatch de intenção — age sobre schedule/cancel ou passa reply da IA inalterado
         var reply = await _intentDispatcher.DispatchAsync(aiResponse, tenantId, request.NumeroRemetente, ct);
 
-        // 7. Persiste histórico (turno atual) — armazena texto ou string vazia para interativas
+        // 7. Persiste histórico (turno atual) — descrição detalhada da lista interativa ajuda a IA no próximo turno
+        var modelContent = reply.HasInteractive && reply.InteractiveList is not null
+            ? $"[Bot apresentou lista '{reply.InteractiveList.Title}' para o cliente escolher. " +
+              $"Opções numeradas: {string.Join(", ", reply.InteractiveList.Sections.SelectMany(s => s.Rows).Select((r, i) => $"{i + 1}. {r.Title}"))}. " +
+              "Aguardando seleção do cliente. Quando o cliente responder com um número (ex: '2'), identifique qual opção corresponde a esse número na lista acima.]"
+            : (reply.Text ?? "");
         var updatedHistory = new List<MessageHistory>(history)
         {
             new() { Role = "user",  Content = request.Texto },
-            new() { Role = "model", Content = reply.Text ?? "" }
+            new() { Role = "model", Content = modelContent }
         };
         await _conversationHistory.SaveHistoryAsync(tenantId, request.NumeroRemetente, updatedHistory, ct);
 

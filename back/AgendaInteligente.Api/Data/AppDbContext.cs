@@ -63,37 +63,37 @@ public sealed class AppDbContext : DbContext
         modelBuilder.Entity<Customer>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
 
         modelBuilder.Entity<Professional>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
 
         modelBuilder.Entity<Service>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
 
         modelBuilder.Entity<Schedule>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
 
         modelBuilder.Entity<TenantSettings>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
 
         modelBuilder.Entity<Waitlist>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
 
         modelBuilder.Entity<PushSubscription>()
             .HasQueryFilter(e =>
                 !_tenantProvider.CurrentTenantId.HasValue ||
-                e.TenantId == _tenantProvider.CurrentTenantId.Value);
+                e.TenantId == _tenantProvider.CurrentTenantId.GetValueOrDefault());
     }
 
     // ── Auto-preenchimento de TenantId ────────────────────────────────────────

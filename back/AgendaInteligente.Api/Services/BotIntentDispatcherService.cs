@@ -69,44 +69,106 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
     private async Task<BotReply> HandleScheduleAsync(
         GeminiIntentResponse aiResponse, Guid tenantId, string senderPhone, CancellationToken ct)
     {
-        // Guard: date+time devem estar presentes para criar o agendamento
-        if (string.IsNullOrWhiteSpace(aiResponse.Date) || string.IsNullOrWhiteSpace(aiResponse.Time))
-            return BotReply.FromText(aiResponse.ReplyMessage);
+        // ── PASSO 1: Resolver serviço ─────────────────────────────────────────
+        var services = await _serviceRepo.GetAllActiveByTenantAsync(tenantId, ct);
+        Service? service = null;
 
-        // Guard: serviço deve estar presente
-        if (string.IsNullOrWhiteSpace(aiResponse.Service))
-            return BotReply.FromText(aiResponse.ReplyMessage);
-
-        // Parse da data/hora como UTC
-        if (!DateTime.TryParseExact(
-            $"{aiResponse.Date} {aiResponse.Time}",
-            "yyyy-MM-dd HH:mm",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-            out var startDateTime))
+        if (!string.IsNullOrWhiteSpace(aiResponse.Service))
         {
-            _logger.LogWarning("Falha ao parsear data/hora da IA. Date={Date}, Time={Time}", aiResponse.Date, aiResponse.Time);
-            return BotReply.FromText(aiResponse.ReplyMessage);
+            // Matching bidirecional: "cortar cabelo" bate com "Corte de Cabelo" e vice-versa
+            service = services.FirstOrDefault(s =>
+                s.Name.Contains(aiResponse.Service, StringComparison.OrdinalIgnoreCase) ||
+                aiResponse.Service.Contains(s.Name, StringComparison.OrdinalIgnoreCase));
         }
 
-        // Resolve serviço por nome (contém, case-insensitive)
-        var services = await _serviceRepo.GetAllActiveAsync(ct);
-        var service = services.FirstOrDefault(s =>
-            s.Name.Contains(aiResponse.Service, StringComparison.OrdinalIgnoreCase));
         if (service is null)
         {
-            _logger.LogInformation("Serviço '{Service}' não encontrado no catálogo ativo.", aiResponse.Service);
-            return BotReply.FromText(aiResponse.ReplyMessage);
+            if (services.Count == 0)
+                return BotReply.FromText("Não há serviços cadastrados no momento. Entre em contato conosco.");
+
+            _logger.LogInformation("Serviço '{Service}' não encontrado no catálogo — exibindo lista.", aiResponse.Service);
+
+            var serviceRows = services
+                .Select(s => new InteractiveSectionRow(s.Name, s.Name, $"{s.DurationMinutes} min"))
+                .ToList();
+
+            var serviceBody = string.IsNullOrWhiteSpace(aiResponse.Service)
+                ? "Qual serviço você deseja?"
+                : $"Não encontrei \"{aiResponse.Service}\". Escolha um dos nossos serviços:";
+
+            return BotReply.FromInteractiveList(new InteractiveListPayload(
+                Title:      "Serviços disponíveis",
+                Body:       serviceBody,
+                ButtonText: "Ver serviços",
+                Sections:   new[] { new InteractiveSection("Disponíveis", serviceRows) }));
         }
 
-        // Resolve profissional por nome ou usa o primeiro disponível
-        var professionals = await _professionalRepo.GetAllActiveAsync(ct);
+        // ── PASSO 2: Resolver profissional ────────────────────────────────────
+        var professionals = await _professionalRepo.GetAllActiveByTenantAsync(tenantId, ct);
         Professional? professional = null;
+
         if (!string.IsNullOrWhiteSpace(aiResponse.Professional))
         {
             professional = professionals.FirstOrDefault(p =>
                 p.Name.Contains(aiResponse.Professional, StringComparison.OrdinalIgnoreCase));
         }
+
+        // Pré-parse de data/hora — reutilizado nos passos 2 e 3
+        DateTime startDateTime = default;
+        var temDataHora = !string.IsNullOrWhiteSpace(aiResponse.Date) &&
+                          !string.IsNullOrWhiteSpace(aiResponse.Time) &&
+                          DateTime.TryParseExact(
+                              $"{aiResponse.Date} {aiResponse.Time}",
+                              "yyyy-MM-dd HH:mm",
+                              CultureInfo.InvariantCulture,
+                              DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                              out startDateTime);
+
+        if (professional is null && professionals.Count > 1)
+        {
+            var candidatos = professionals.ToList();
+
+            if (temDataHora)
+            {
+                var endDt = startDateTime.AddMinutes(service.DurationMinutes);
+                var disponiveis = new List<Professional>();
+                foreach (var prof in professionals)
+                {
+                    var conflitos = await _scheduleRepo.GetConflictingAsync(prof.Id, startDateTime, endDt, ct);
+                    if (conflitos.Count == 0)
+                        disponiveis.Add(prof);
+                }
+
+                if (disponiveis.Count == 0)
+                    return BotReply.FromText(
+                        $"Que pena! Nenhum profissional disponível em {startDateTime:dd/MM} às {startDateTime:HH:mm}. " +
+                        "Gostaria de tentar outro horário?");
+
+                if (disponiveis.Count == 1)
+                    professional = disponiveis[0];
+                else
+                    candidatos = disponiveis;
+            }
+
+            if (professional is null)
+            {
+                var profRows = candidatos
+                    .Select(p => new InteractiveSectionRow(p.Name, p.Name, null))
+                    .ToList();
+
+                var profBody = temDataHora
+                    ? $"Para {startDateTime:dd/MM} às {startDateTime:HH:mm}, quem você prefere?"
+                    : aiResponse.ReplyMessage;
+
+                return BotReply.FromInteractiveList(new InteractiveListPayload(
+                    Title:      "Escolha o profissional",
+                    Body:       profBody,
+                    ButtonText: "Ver profissionais",
+                    Sections:   new[] { new InteractiveSection("Disponíveis", profRows) }));
+            }
+        }
+
+        // Um único profissional cadastrado — usa automaticamente
         professional ??= professionals.FirstOrDefault();
 
         if (professional is null)
@@ -115,6 +177,16 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
+        // ── PASSO 3: Validar data e hora ──────────────────────────────────────
+        if (!temDataHora)
+        {
+            if (!string.IsNullOrWhiteSpace(aiResponse.Date) && !string.IsNullOrWhiteSpace(aiResponse.Time))
+                _logger.LogWarning("Falha ao parsear data/hora da IA. Date={Date}, Time={Time}", aiResponse.Date, aiResponse.Time);
+
+            return BotReply.FromText(aiResponse.ReplyMessage);
+        }
+
+        // ── PASSO 4: Criar agendamento ─────────────────────────────────────────
         // Find-or-create customer pelo telefone (IgnoreQueryFilters — sem JWT no webhook path)
         var customer = await _customerRepo.GetByPhoneAndTenantAsync(senderPhone, tenantId, ct)
             ?? await _customerRepo.CreateAsync(new Customer
@@ -127,7 +199,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         try
         {
             await _scheduleService.CreateAsync(
-                customer.Id, professional.Id, service.Id, startDateTime, ct: ct);
+                customer.Id, professional.Id, service.Id, startDateTime, tenantId: tenantId, ct: ct);
 
             _logger.LogInformation(
                 "Agendamento criado via bot. TenantId={TenantId}, Phone={Phone}, Service={Service}, Start={Start}",
@@ -218,7 +290,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         var service = existing.Service;
         if (!string.IsNullOrWhiteSpace(aiResponse.Service))
         {
-            var allServices = await _serviceRepo.GetAllActiveAsync(ct);
+            var allServices = await _serviceRepo.GetAllActiveByTenantAsync(tenantId, ct);
             service = allServices.FirstOrDefault(s =>
                 s.Name.Contains(aiResponse.Service, StringComparison.OrdinalIgnoreCase))
                 ?? service;
@@ -229,14 +301,22 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
             return BotReply.FromText(aiResponse.ReplyMessage);
         }
 
-        // Resolve professional: AI override → inherit from existing appointment
+        // Resolve professional: AI override → inherit from existing appointment → ask if multiple
         var professional = existing.Professional;
         if (!string.IsNullOrWhiteSpace(aiResponse.Professional))
         {
-            var allProfessionals = await _professionalRepo.GetAllActiveAsync(ct);
+            var allProfessionals = await _professionalRepo.GetAllActiveByTenantAsync(tenantId, ct);
             professional = allProfessionals.FirstOrDefault(p =>
                 p.Name.Contains(aiResponse.Professional, StringComparison.OrdinalIgnoreCase))
                 ?? professional;
+        }
+        // Se o agendamento original não tem profissional e há múltiplos disponíveis, aguarda o AI coletar
+        if (professional is null)
+        {
+            var allProfessionals = await _professionalRepo.GetAllActiveByTenantAsync(tenantId, ct);
+            if (allProfessionals.Count > 1)
+                return BotReply.FromText(aiResponse.ReplyMessage);
+            professional = allProfessionals.FirstOrDefault();
         }
         if (professional is null)
         {
@@ -248,7 +328,7 @@ public sealed class BotIntentDispatcherService : IBotIntentDispatcherService
         try
         {
             await _scheduleService.CreateAsync(
-                customer.Id, professional.Id, service.Id, newStart, ct: ct);
+                customer.Id, professional.Id, service.Id, newStart, tenantId: tenantId, ct: ct);
         }
         catch (ScheduleConflictException ex)
         {

@@ -28,14 +28,25 @@ public sealed class AiOrchestratorServiceTests
         };
 
         var tenantSettingsRepoMock = new Mock<ITenantSettingsRepository>();
-        tenantSettingsRepoMock.Setup(repo => repo.GetAsync(It.IsAny<CancellationToken>()))
+        tenantSettingsRepoMock.Setup(repo => repo.GetByTenantIdAsync(tenantId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(settings);
 
         var scheduleRepoMock = new Mock<IScheduleRepository>();
 
+        var professionalRepoMock = new Mock<IProfessionalRepository>();
+        professionalRepoMock.Setup(r => r.GetAllActiveByTenantAsync(tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Professional>());
+
+        var serviceCatalogRepoMock = new Mock<IServiceCatalogRepository>();
+        serviceCatalogRepoMock.Setup(r => r.GetAllActiveByTenantAsync(tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Service>
+            {
+                new() { Id = Guid.NewGuid(), Name = "Corte", DurationMinutes = 30, Price = 40m, TenantId = tenantId }
+            });
+
         var geminiServiceMock = new Mock<IGeminiService>();
         var expectedResponse = new GeminiIntentResponse { Intent = "schedule" };
-        
+
         geminiServiceMock.Setup(s => s.ExtractIntentAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<MessageHistory>>(), "tenant-api-key", "gemini-2.5-flash-lite"))
             .ReturnsAsync(expectedResponse);
 
@@ -43,10 +54,12 @@ public sealed class AiOrchestratorServiceTests
         var logger = new NullLogger<AiOrchestratorService>();
 
         var service = new AiOrchestratorService(
-            geminiServiceMock.Object, 
-            tenantSettingsRepoMock.Object, 
-            scheduleRepoMock.Object, 
-            options, 
+            geminiServiceMock.Object,
+            tenantSettingsRepoMock.Object,
+            scheduleRepoMock.Object,
+            professionalRepoMock.Object,
+            serviceCatalogRepoMock.Object,
+            options,
             logger);
 
         // Act
@@ -55,7 +68,9 @@ public sealed class AiOrchestratorServiceTests
         // Assert
         Assert.NotNull(result);
         Assert.Equal("schedule", result.Intent);
-        geminiServiceMock.Verify(s => s.ExtractIntentAsync(It.Is<string>(p => p.Contains("Barbearia Teste")), "ola", It.IsAny<List<MessageHistory>>(), "tenant-api-key", "gemini-2.5-flash-lite"), Times.Once);
+        geminiServiceMock.Verify(s => s.ExtractIntentAsync(
+            It.Is<string>(p => p.Contains("Barbearia Teste") && p.Contains("Corte") && p.Contains("SERVIÇOS DISPONÍVEIS")),
+            "ola", It.IsAny<List<MessageHistory>>(), "tenant-api-key", "gemini-2.5-flash-lite"), Times.Once);
     }
 
     [Fact]
@@ -65,14 +80,16 @@ public sealed class AiOrchestratorServiceTests
         var tenantId = Guid.NewGuid();
 
         var tenantSettingsRepoMock = new Mock<ITenantSettingsRepository>();
-        tenantSettingsRepoMock.Setup(repo => repo.GetAsync(It.IsAny<CancellationToken>()))
+        tenantSettingsRepoMock.Setup(repo => repo.GetByTenantIdAsync(tenantId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((TenantSettings?)null);
 
         var service = new AiOrchestratorService(
-            new Mock<IGeminiService>().Object, 
-            tenantSettingsRepoMock.Object, 
-            new Mock<IScheduleRepository>().Object, 
-            Options.Create(new GeminiOptions()), 
+            new Mock<IGeminiService>().Object,
+            tenantSettingsRepoMock.Object,
+            new Mock<IScheduleRepository>().Object,
+            new Mock<IProfessionalRepository>().Object,
+            new Mock<IServiceCatalogRepository>().Object,
+            Options.Create(new GeminiOptions()),
             new NullLogger<AiOrchestratorService>());
 
         // Act & Assert

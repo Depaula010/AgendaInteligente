@@ -40,15 +40,15 @@ public sealed class BotIntentDispatcherServiceTests
         _customerMock.Setup(r => r.GetByPhoneAndTenantAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Customer { Id = Guid.NewGuid(), Name = SenderPhone, PhoneNumber = SenderPhone, TenantId = TenantId });
 
-        _serviceMock.Setup(r => r.GetAllActiveAsync(It.IsAny<CancellationToken>()))
+        _serviceMock.Setup(r => r.GetAllActiveByTenantAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Service> { new() { Id = Guid.NewGuid(), Name = "Corte", DurationMinutes = 30, Price = 40m, TenantId = TenantId } });
 
-        _professionalMock.Setup(r => r.GetAllActiveAsync(It.IsAny<CancellationToken>()))
+        _professionalMock.Setup(r => r.GetAllActiveByTenantAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<Professional> { new() { Id = Guid.NewGuid(), Name = "João", Email = "joao@test.com", PasswordHash = "hash", TenantId = TenantId } });
 
         _scheduleServiceMock.Setup(s => s.CreateAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Schedule { ProfessionalId = Guid.NewGuid(), StartDateTime = DateTime.UtcNow.AddDays(1), EndDateTime = DateTime.UtcNow.AddDays(1).AddMinutes(30) });
 
         // Default: settings sem template personalizado (usa o default do serviço)
@@ -73,7 +73,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.False(result.HasInteractive);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ── schedule intent — dados incompletos ──────────────────────────────────────
@@ -92,7 +92,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Equal("Para qual dia?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -109,11 +109,11 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Equal("Qual horário prefere?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task DispatchAsync_ScheduleIntent_MissingService_ReturnsAiReply()
+    public async Task DispatchAsync_ScheduleIntent_MissingService_ReturnsInteractiveServiceList()
     {
         var ai = new GeminiIntentResponse
         {
@@ -123,14 +123,18 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Qual serviço?", result.Text);
+        Assert.True(result.HasInteractive);
+        Assert.NotNull(result.InteractiveList);
+        Assert.Equal("Serviços disponíveis", result.InteractiveList!.Title);
+        var rows = result.InteractiveList.Sections.SelectMany(s => s.Rows).ToList();
+        Assert.Contains(rows, r => r.Title == "Corte");
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task DispatchAsync_ScheduleIntent_UnknownService_ReturnsAiReply()
+    public async Task DispatchAsync_ScheduleIntent_UnknownService_ReturnsInteractiveServiceList()
     {
         var ai = new GeminiIntentResponse
         {
@@ -141,10 +145,81 @@ public sealed class BotIntentDispatcherServiceTests
 
         var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
 
-        Assert.Equal("Não encontrei esse serviço.", result.Text);
+        Assert.True(result.HasInteractive);
+        Assert.NotNull(result.InteractiveList);
+        Assert.Equal("Serviços disponíveis", result.InteractiveList!.Title);
+        Assert.Contains("Massagem Relaxante", result.InteractiveList.Body, StringComparison.OrdinalIgnoreCase);
+        var rows = result.InteractiveList.Sections.SelectMany(s => s.Rows).ToList();
+        Assert.Contains(rows, r => r.Title == "Corte");
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ── schedule intent — lista de profissionais ─────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_ScheduleIntent_MultipleProfessionalsWithDateTime_ReturnsInteractiveProfessionalList()
+    {
+        var joaoId  = Guid.NewGuid();
+        var pedroId = Guid.NewGuid();
+        _professionalMock.Setup(r => r.GetAllActiveByTenantAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Professional>
+            {
+                new() { Id = joaoId,  Name = "João",  Email = "joao@test.com",  PasswordHash = "h", TenantId = TenantId },
+                new() { Id = pedroId, Name = "Pedro", Email = "pedro@test.com", PasswordHash = "h", TenantId = TenantId }
+            });
+        _scheduleRepoMock.Setup(r => r.GetConflictingAsync(It.IsAny<Guid>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Schedule>());
+
+        var ai = new GeminiIntentResponse
+        {
+            Intent = "schedule", Date = "2026-05-25", Time = "10:00",
+            Service = "Corte", ReplyMessage = "Qual profissional você prefere?"
+        };
+
+        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+
+        Assert.True(result.HasInteractive);
+        Assert.NotNull(result.InteractiveList);
+        Assert.Equal("Escolha o profissional", result.InteractiveList!.Title);
+        Assert.Contains("25/05", result.InteractiveList.Body);
+        var rows = result.InteractiveList.Sections.SelectMany(s => s.Rows).ToList();
+        Assert.Contains(rows, r => r.Title == "João");
+        Assert.Contains(rows, r => r.Title == "Pedro");
+        _scheduleServiceMock.Verify(s => s.CreateAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ScheduleIntent_MultipleProfessionalsNoDateTime_ReturnsInteractiveProfessionalList()
+    {
+        _professionalMock.Setup(r => r.GetAllActiveByTenantAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Professional>
+            {
+                new() { Id = Guid.NewGuid(), Name = "João",  Email = "joao@test.com",  PasswordHash = "h", TenantId = TenantId },
+                new() { Id = Guid.NewGuid(), Name = "Pedro", Email = "pedro@test.com", PasswordHash = "h", TenantId = TenantId }
+            });
+
+        var ai = new GeminiIntentResponse
+        {
+            Intent = "schedule",
+            Service = "Corte",  // sem data e hora
+            ReplyMessage = "Qual profissional você prefere?"
+        };
+
+        var result = await _svc.DispatchAsync(ai, TenantId, SenderPhone);
+
+        Assert.True(result.HasInteractive);
+        Assert.NotNull(result.InteractiveList);
+        Assert.Equal("Escolha o profissional", result.InteractiveList!.Title);
+        var rows = result.InteractiveList.Sections.SelectMany(s => s.Rows).ToList();
+        Assert.Contains(rows, r => r.Title == "João");
+        Assert.Contains(rows, r => r.Title == "Pedro");
+        _scheduleServiceMock.Verify(s => s.CreateAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ── schedule intent — sucesso ────────────────────────────────────────────────
@@ -164,7 +239,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Equal("Agendamento confirmado!", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -189,7 +264,7 @@ public sealed class BotIntentDispatcherServiceTests
             It.IsAny<CancellationToken>()), Times.Once);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ── schedule intent — conflito → lista interativa (W29) ──────────────────────
@@ -337,7 +412,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Equal("Para qual dia e horário?", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -351,7 +426,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Contains("nenhum agendamento pendente", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -365,7 +440,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Contains("nenhum agendamento pendente", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -393,7 +468,7 @@ public sealed class BotIntentDispatcherServiceTests
             });
         _scheduleServiceMock.Setup(s => s.CreateAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), svcId,
-                It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Schedule { ProfessionalId = profId, StartDateTime = newStart, EndDateTime = newStart.AddMinutes(30) });
         _scheduleServiceMock.Setup(s => s.UpdateStatusAsync(oldId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
@@ -406,7 +481,7 @@ public sealed class BotIntentDispatcherServiceTests
         Assert.Contains("10:00", result.Text);
         _scheduleServiceMock.Verify(s => s.CreateAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), svcId,
-            It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<DateTime>(d => d == newStart), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Once);
         _scheduleServiceMock.Verify(s => s.UpdateStatusAsync(oldId, ScheduleStatus.Cancelled, It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -439,7 +514,7 @@ public sealed class BotIntentDispatcherServiceTests
         };
         _scheduleServiceMock.Setup(s => s.CreateAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", alternatives));
 
         var result = await _svc.DispatchAsync(FullRescheduleIntent(newStart), TenantId, SenderPhone);
@@ -484,6 +559,6 @@ public sealed class BotIntentDispatcherServiceTests
     private void SetupConflict(List<DateTime> alternatives)
         => _scheduleServiceMock.Setup(s => s.CreateAsync(
                 It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid>(),
-                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<DateTime>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ScheduleConflictException("Horário ocupado.", alternatives));
 }

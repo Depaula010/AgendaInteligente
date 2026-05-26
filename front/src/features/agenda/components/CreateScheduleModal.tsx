@@ -265,6 +265,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
                   const label = new Date(slot).toLocaleTimeString('pt-BR', {
                     hour: '2-digit',
                     minute: '2-digit',
+                    timeZone: 'UTC',
                   })
                   const isSelected = slot === selectedSlot
                   return (
@@ -310,6 +311,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
                     const label = new Date(alt).toLocaleTimeString('pt-BR', {
                       hour: '2-digit',
                       minute: '2-digit',
+                      timeZone: 'UTC',
                     })
                     return (
                       <button
@@ -448,6 +450,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
                         year: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit',
+                        timeZone: 'UTC',
                       })}
                     </li>
                   ))}

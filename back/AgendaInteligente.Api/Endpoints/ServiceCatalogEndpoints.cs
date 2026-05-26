@@ -13,7 +13,7 @@ public static class ServiceCatalogEndpoints
             .WithTags("Service Catalog")
             .RequireAuthorization();
 
-        group.MapGet("/", async ([FromQuery] bool all, IServiceCatalogService service, CancellationToken ct) =>
+        group.MapGet("/", async (IServiceCatalogService service, CancellationToken ct, [FromQuery] bool all = false) =>
         {
             var services = all
                 ? await service.GetAllAsync(ct)

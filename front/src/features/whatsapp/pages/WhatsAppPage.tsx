@@ -179,7 +179,7 @@ export function WhatsAppPage() {
           <div className="flex flex-col items-center gap-4">
             <div className="rounded-2xl bg-white p-4 inline-block">
               <img
-                src={`data:image/png;base64,${status.qrCode}`}
+                src={status.qrCode ?? undefined}
                 alt="QR code para conectar o WhatsApp"
                 className="h-52 w-52 block"
               />

@@ -23,7 +23,7 @@ public interface IScheduleService
     Task<Schedule> CreateAsync(
         Guid customerId, Guid professionalId, Guid serviceId,
         DateTime startDateTime, string? notes = null,
-        CancellationToken ct = default);
+        Guid? tenantId = null, CancellationToken ct = default);
 
     Task<Schedule> UpdateAsync(
         Guid id, DateTime startDateTime, string? notes,

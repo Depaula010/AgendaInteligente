@@ -1,6 +1,6 @@
 using AgendaInteligente.Api.Contracts.Requests;
-using AgendaInteligente.Api.Domain.Exceptions;
 using AgendaInteligente.Api.Contracts.Responses;
+using AgendaInteligente.Api.Domain.Enums;
 using AgendaInteligente.Api.Domain.Exceptions;
 using AgendaInteligente.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -54,7 +54,7 @@ public static class ScheduleEndpoints
             {
                 var schedule = await service.CreateAsync(
                     request.CustomerId, request.ProfessionalId, request.ServiceId,
-                    request.StartDateTime, request.Notes, ct);
+                    request.StartDateTime, request.Notes, ct: ct);
 
                 var response = new ScheduleResponse(
                     schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
@@ -77,7 +77,12 @@ public static class ScheduleEndpoints
             }
         });
 
-        group.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateScheduleRequest request, IScheduleService service, CancellationToken ct) =>
+        group.MapPut("/{id:guid}", async (
+            Guid id,
+            [FromBody] UpdateScheduleRequest request,
+            IScheduleService service,
+            IWhatsAppSendService whatsAppSend,
+            CancellationToken ct) =>
         {
             try
             {
@@ -87,6 +92,15 @@ public static class ScheduleEndpoints
                 var response = new ScheduleResponse(
                     schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
                     schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
+
+                if (!string.IsNullOrWhiteSpace(schedule.Customer?.PhoneNumber))
+                {
+                    var svcName = schedule.Service?.Name ?? "serviço";
+                    var msg = $"Olá! Seu agendamento de {svcName} foi remarcado para " +
+                              $"{schedule.StartDateTime:dd/MM/yyyy} às {schedule.StartDateTime:HH:mm}. " +
+                              "Se tiver alguma dúvida, é só responder aqui!";
+                    await whatsAppSend.SendTextMessageAsync(schedule.TenantId, schedule.Customer.PhoneNumber, msg, ct);
+                }
 
                 return Results.Ok(response);
             }
@@ -100,15 +114,52 @@ public static class ScheduleEndpoints
             }
         });
 
-        group.MapPatch("/{id:guid}/status", async (Guid id, [FromBody] UpdateScheduleStatusRequest request, IScheduleService service, CancellationToken ct) =>
+        group.MapPatch("/{id:guid}/status", async (
+            Guid id,
+            [FromBody] UpdateScheduleStatusRequest request,
+            IScheduleService service,
+            IWhatsAppSendService whatsAppSend,
+            CancellationToken ct) =>
         {
+            Domain.Entities.Schedule? schedule = null;
+            if (request.Status == ScheduleStatus.Cancelled)
+                schedule = await service.GetByIdAsync(id, ct);
+
             var success = await service.UpdateStatusAsync(id, request.Status, ct);
+
+            if (success && request.Status == ScheduleStatus.Cancelled
+                && !string.IsNullOrWhiteSpace(schedule?.Customer?.PhoneNumber))
+            {
+                var svcName = schedule.Service?.Name ?? "serviço";
+                var msg = $"Olá! Seu agendamento de {svcName} do dia " +
+                          $"{schedule.StartDateTime:dd/MM/yyyy} às {schedule.StartDateTime:HH:mm} " +
+                          "foi cancelado pelo estabelecimento. Pedimos desculpas pelo inconveniente! " +
+                          "Se quiser remarcar, é só responder aqui.";
+                await whatsAppSend.SendTextMessageAsync(schedule.TenantId, schedule.Customer.PhoneNumber, msg, ct);
+            }
+
             return success ? Results.NoContent() : Results.NotFound();
         });
 
-        group.MapDelete("/{id:guid}", async (Guid id, IScheduleService service, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", async (
+            Guid id,
+            IScheduleService service,
+            IWhatsAppSendService whatsAppSend,
+            CancellationToken ct) =>
         {
-            var success = await service.DeleteAsync(id, ct);
+            var schedule = await service.GetByIdAsync(id, ct);
+            var success  = await service.DeleteAsync(id, ct);
+
+            if (success && !string.IsNullOrWhiteSpace(schedule?.Customer?.PhoneNumber))
+            {
+                var svcName = schedule.Service?.Name ?? "serviço";
+                var msg = $"Olá! Seu agendamento de {svcName} do dia " +
+                          $"{schedule.StartDateTime:dd/MM/yyyy} às {schedule.StartDateTime:HH:mm} " +
+                          "foi cancelado pelo estabelecimento. Pedimos desculpas pelo inconveniente! " +
+                          "Se quiser remarcar, é só responder aqui.";
+                await whatsAppSend.SendTextMessageAsync(schedule.TenantId, schedule.Customer.PhoneNumber, msg, ct);
+            }
+
             return success ? Results.NoContent() : Results.NotFound();
         });
 

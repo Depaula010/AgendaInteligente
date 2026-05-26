@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AgendaInteligente.Api.Domain.Entities;
 
 /// <summary>
@@ -19,7 +21,8 @@ public sealed class Customer
     // ── Dados do Cliente ───────────────────────────────────────────────────────
     public required string Name { get; set; }
 
-    /// <summary>Número WhatsApp no formato E.164 (ex: +5511999998888).</summary>
+    /// <summary>Número WhatsApp no formato E.164 (ex: 5511999998888).</summary>
+    [MaxLength(30)]
     public required string PhoneNumber { get; set; }
 
     public string? Email { get; set; }

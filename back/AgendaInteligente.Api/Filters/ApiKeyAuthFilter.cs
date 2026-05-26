@@ -27,7 +27,7 @@ public class ApiKeyAuthFilter : IEndpointFilter
 
         var configuredApiKey = _configuration.GetValue<string>("WebhookSettings:ApiKey");
 
-        if (string.IsNullOrEmpty(configuredApiKey) || !extractedApiKey.Equals(configuredApiKey))
+        if (string.IsNullOrEmpty(configuredApiKey) || !string.Equals(extractedApiKey.ToString(), configuredApiKey, StringComparison.Ordinal))
         {
             _logger.LogWarning("Tentativa de acesso ao Webhook com a chave X-Api-Key inválida.");
             return Results.Unauthorized();

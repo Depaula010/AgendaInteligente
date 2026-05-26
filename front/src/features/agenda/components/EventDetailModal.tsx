@@ -39,11 +39,12 @@ function fmtDate(iso: string) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'UTC',
   })
 }
 
 function fmtDateOnly(iso: string) {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
 }
 
 function toDateInputValue(iso: string): string {
@@ -217,6 +218,7 @@ export function EventDetailModal({ schedule, professional, service, onClose }: E
                   const label = new Date(slot).toLocaleTimeString('pt-BR', {
                     hour: '2-digit',
                     minute: '2-digit',
+                    timeZone: 'UTC',
                   })
                   const isSelected = slot === selectedSlot
                   return (

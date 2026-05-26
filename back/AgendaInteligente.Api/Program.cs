@@ -25,6 +25,9 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Local overrides (gitignored, never committed) ──────────────────────────────
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 // ── Serilog (B31) ──────────────────────────────────────────────────────────────
 builder.Host.UseSerilog((ctx, loggerConfig) =>
     loggerConfig.ReadFrom.Configuration(ctx.Configuration));
@@ -67,6 +70,18 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString)
            .UseSnakeCaseNamingConvention()); // Converte PascalCase para snake_case no Postgres
+
+// ── CORS ───────────────────────────────────────────────────────────────────────
+var allowedOrigins = builder.Configuration
+    .GetSection("AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173", "https://localhost:5173"];
+
+builder.Services.AddCors(options =>
+    options.AddDefaultPolicy(policy =>
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials()));
 
 // ── OpenAPI / Swagger ──────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
@@ -241,6 +256,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.MapInboundClaims = false;
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -270,7 +286,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "AgendaInteligente v1"));
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 app.UseSerilogRequestLogging(opts =>
 {
     opts.EnrichDiagnosticContext = (diagCtx, httpCtx) =>
@@ -284,6 +301,17 @@ app.UseSerilogRequestLogging(opts =>
             ? Serilog.Events.LogEventLevel.Debug
             : Serilog.Events.LogEventLevel.Information;
 });
+app.UseCors();
+
+// Habilita rebobinar o body em todas as requisições.
+// Necessário para que o WebhookHmacFilter possa ler o body DEPOIS do model binding
+// já o ter consumido (em Minimal API, binding ocorre antes dos endpoint filters).
+app.Use(async (ctx, next) =>
+{
+    ctx.Request.EnableBuffering();
+    await next(ctx);
+});
+
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

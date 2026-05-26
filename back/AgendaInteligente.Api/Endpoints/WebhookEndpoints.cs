@@ -12,6 +12,7 @@ public static class WebhookEndpoints
     {
         var group = app.MapGroup("/api/v1/webhooks")
             .WithTags("Webhooks")
+            .AllowAnonymous()
             .AddEndpointFilter<ApiKeyAuthFilter>()
             .AddEndpointFilter<WebhookHmacFilter>();
 
@@ -47,6 +48,8 @@ public static class WebhookEndpoints
 
             // Fallback síncrono: Redis indisponível — processa e responde diretamente
             var reply = await webhookService.ProcessWhatsAppMessageAsync(tenantId, request, ct);
+            if (reply.HasInteractive && reply.InteractiveList is not null)
+                return Results.Ok(new { interactiveList = reply.InteractiveList });
             return Results.Ok(new { resposta = reply.Text });
         }
         catch (ArgumentException ex)

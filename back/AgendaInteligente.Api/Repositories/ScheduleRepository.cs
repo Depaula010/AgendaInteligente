@@ -49,6 +49,7 @@ public sealed class ScheduleRepository : IScheduleRepository
 
     public Task<Schedule?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => _db.Schedules
+              .IgnoreQueryFilters()
               .Include(s => s.Professional)
               .Include(s => s.Customer)
               .Include(s => s.Service)
@@ -62,6 +63,7 @@ public sealed class ScheduleRepository : IScheduleRepository
     public Task<IReadOnlyList<Schedule>> GetConflictingAsync(
         Guid professionalId, DateTime start, DateTime end, CancellationToken ct = default)
         => _db.Schedules
+              .IgnoreQueryFilters()
               .Where(s => s.ProfessionalId == professionalId
                        && s.Status != ScheduleStatus.Cancelled
                        && s.StartDateTime < end
@@ -112,6 +114,7 @@ public sealed class ScheduleRepository : IScheduleRepository
     public Task<IReadOnlyList<Schedule>> GetUpcomingByCustomerIdAsync(
         Guid customerId, CancellationToken ct = default)
         => _db.Schedules
+              .IgnoreQueryFilters()
               .Include(s => s.Service)
               .Include(s => s.Professional)
               .Where(s => s.CustomerId == customerId
@@ -141,6 +144,7 @@ public sealed class ScheduleRepository : IScheduleRepository
     public Task<IReadOnlyList<Schedule>> GetAllByCustomerIdAsync(
         Guid customerId, CancellationToken ct = default)
         => _db.Schedules
+              .IgnoreQueryFilters()
               .Where(s => s.CustomerId == customerId && !s.IsBlocked)
               .OrderByDescending(s => s.StartDateTime)
               .ToListAsync(ct)

@@ -66,12 +66,40 @@ public sealed class GeminiService : IGeminiService
                     type = "object",
                     properties = new
                     {
-                        intent = new { type = "string" },
-                        date = new { type = "string", nullable = true },
-                        time = new { type = "string", nullable = true },
-                        service = new { type = "string", nullable = true },
-                        professional = new { type = "string", nullable = true },
-                        reply_message = new { type = "string" }
+                        intent = new
+                        {
+                            type = "string",
+                            @enum = new[] { "schedule", "cancel", "reschedule", "check", "general" }
+                        },
+                        date = new
+                        {
+                            type = "string",
+                            nullable = true,
+                            description = "Data desejada no formato YYYY-MM-DD. Null se não mencionado."
+                        },
+                        time = new
+                        {
+                            type = "string",
+                            nullable = true,
+                            description = "Hora desejada no formato HH:MM (24h). Null se não mencionado."
+                        },
+                        service = new
+                        {
+                            type = "string",
+                            nullable = true,
+                            description = "Nome do serviço solicitado. Null se não mencionado."
+                        },
+                        professional = new
+                        {
+                            type = "string",
+                            nullable = true,
+                            description = "Nome exato do profissional escolhido. Null enquanto o cliente não tiver escolhido."
+                        },
+                        reply_message = new
+                        {
+                            type = "string",
+                            description = "Mensagem de resposta ao cliente. Curta e amigável, estilo WhatsApp."
+                        }
                     },
                     required = new[] { "intent", "reply_message" }
                 }

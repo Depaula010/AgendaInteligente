@@ -13,7 +13,7 @@ public static class ProfessionalEndpoints
             .WithTags("Professionals")
             .RequireAuthorization();
 
-        group.MapGet("/", async ([FromQuery] bool all, IProfessionalService service, CancellationToken ct) =>
+        group.MapGet("/", async (IProfessionalService service, CancellationToken ct, [FromQuery] bool all = false) =>
         {
             var professionals = all
                 ? await service.GetAllAsync(ct)

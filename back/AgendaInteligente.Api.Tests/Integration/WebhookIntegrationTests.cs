@@ -41,10 +41,11 @@ public sealed class WebhookIntegrationTests : IClassFixture<TestWebApplicationFa
     public async Task PostWebhook_WithValidApiKey_ReturnsAcceptedOrOk()
     {
         // Redis não disponível no test → fallback síncrono (200) ou assíncrono (202)
+        // Usa snake_case para corresponder ao [JsonPropertyName] de BotWebhookRequest
         var request = new HttpRequestMessage(HttpMethod.Post,
             $"/api/v1/webhooks/whatsapp/{TenantId}");
         request.Headers.Add("X-Api-Key", TestWebApplicationFactory.TestApiKey);
-        request.Content = JsonContent.Create(new { NumeroRemetente = "5511999999999", Texto = "Oi" });
+        request.Content = JsonContent.Create(new { numero_remetente = "5511999999999", texto = "Oi" });
 
         var response = await _client.SendAsync(request);
 
