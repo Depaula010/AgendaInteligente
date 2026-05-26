@@ -76,6 +76,23 @@ public static class CustomerEndpoints
             });
         });
 
+        // ── Atualizar nome do cliente ─────────────────────────────────────────
+        group.MapPatch("/{id:guid}", async (
+            Guid id,
+            [FromBody] UpdateCustomerRequest request,
+            ICustomerRepository repo,
+            CancellationToken ct) =>
+        {
+            var customer = await repo.GetByIdAsync(id, ct);
+            if (customer is null)
+                return Results.NotFound();
+
+            if (request.Name is not null) customer.Name = request.Name.Trim();
+            if (request.PhoneNumber is not null) customer.PhoneNumber = request.PhoneNumber.Trim();
+            await repo.UpdateAsync(customer, ct);
+            return Results.Ok(ToResponse(customer));
+        });
+
         // ── Histórico de agendamentos do cliente ───────────────────────────────
         group.MapGet("/{id:guid}/schedules", async (
             Guid id,
@@ -84,7 +101,7 @@ public static class CustomerEndpoints
         {
             var schedules = await scheduleRepo.GetAllByCustomerIdAsync(id, ct);
             var response  = schedules.Select(s => new ScheduleResponse(
-                s.Id, s.CustomerId!.Value, s.ProfessionalId, s.ServiceId!.Value,
+                s.Id, s.CustomerId!.Value, s.Customer?.Name, s.ProfessionalId, s.ServiceId!.Value,
                 s.StartDateTime, s.EndDateTime, s.Status, s.Notes, s.CreatedAt));
             return Results.Ok(response);
         });

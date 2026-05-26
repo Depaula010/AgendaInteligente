@@ -11,6 +11,7 @@ export type ScheduleStatusValue = (typeof ScheduleStatus)[keyof typeof ScheduleS
 export interface ScheduleResponse {
   id: string
   customerId: string
+  customerName: string | null
   professionalId: string
   serviceId: string
   startDateTime: string
@@ -86,7 +87,8 @@ export interface CreateRecurringScheduleRequest {
   professionalId: string
   serviceId: string
   startDateTime: string
-  repeatWeeklyCount: number
+  repeatType: 'weekly' | 'monthly'
+  repeatCount?: number
   notes?: string
 }
 

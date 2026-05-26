@@ -89,7 +89,7 @@ public sealed class ReminderService : IReminderService
             tenantId, schedules.Count);
 
         var settings = await _settingsRepo.GetByTenantIdAsync(tenantId, ct);
-        var tz       = GetTenantTimeZone(settings);
+        var tz       = TenantTimeZoneHelper.GetTimeZone(settings);
 
         foreach (var schedule in schedules)
             await TrySendAsync(tenantId, schedule, tz, ct);
@@ -148,11 +148,4 @@ public sealed class ReminderService : IReminderService
            "2 - Remarcar\n" +
            "3 - Cancelar";
 
-    private static TimeZoneInfo GetTenantTimeZone(TenantSettings? settings)
-    {
-        var id = settings?.TimeZoneId;
-        if (string.IsNullOrWhiteSpace(id)) return TimeZoneInfo.Utc;
-        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
-        catch { return TimeZoneInfo.Utc; }
-    }
 }

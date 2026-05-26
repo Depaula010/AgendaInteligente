@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using AgendaInteligente.Api.Contracts.Requests;
 using AgendaInteligente.Api.Contracts.Responses;
 using AgendaInteligente.Api.Services.Interfaces;
@@ -19,7 +20,7 @@ public static class ProfessionalEndpoints
                 ? await service.GetAllAsync(ct)
                 : await service.GetAllActiveAsync(ct);
             var response = professionals.Select(p => new ProfessionalResponse(
-                p.Id, p.Name, p.Email, p.Role, p.CalendarColor, p.IsActive, p.CreatedAt));
+                p.Id, p.Name, p.Email, p.Role, p.CanManageServices, p.CalendarColor, p.IsActive, p.CreatedAt, p.WorkingHoursJson));
             return Results.Ok(response);
         });
 
@@ -31,19 +32,22 @@ public static class ProfessionalEndpoints
 
             var response = new ProfessionalResponse(
                 professional.Id, professional.Name, professional.Email,
-                professional.Role, professional.CalendarColor, professional.IsActive, professional.CreatedAt);
-            
+                professional.Role, professional.CanManageServices,
+                professional.CalendarColor, professional.IsActive, professional.CreatedAt, professional.WorkingHoursJson);
+
             return Results.Ok(response);
         });
 
         group.MapPost("/", async ([FromBody] CreateProfessionalRequest request, IProfessionalService service, CancellationToken ct) =>
         {
             var professional = await service.CreateAsync(
-                request.Name, request.Email, request.Password, request.CalendarColor, ct);
+                request.Name, request.Email, request.Password, request.CalendarColor,
+                request.Role, request.CanManageServices, ct);
 
             var response = new ProfessionalResponse(
                 professional.Id, professional.Name, professional.Email,
-                professional.Role, professional.CalendarColor, professional.IsActive, professional.CreatedAt);
+                professional.Role, professional.CanManageServices,
+                professional.CalendarColor, professional.IsActive, professional.CreatedAt, professional.WorkingHoursJson);
 
             return Results.Created($"/api/v1/professionals/{professional.Id}", response);
         })
@@ -54,11 +58,13 @@ public static class ProfessionalEndpoints
             try
             {
                 var professional = await service.UpdateAsync(
-                    id, request.Name, request.CalendarColor, request.IsActive, ct);
+                    id, request.Name, request.CalendarColor, request.IsActive,
+                    request.Role, request.CanManageServices, ct);
 
                 var response = new ProfessionalResponse(
                     professional.Id, professional.Name, professional.Email,
-                    professional.Role, professional.CalendarColor, professional.IsActive, professional.CreatedAt);
+                    professional.Role, professional.CanManageServices,
+                    professional.CalendarColor, professional.IsActive, professional.CreatedAt);
 
                 return Results.Ok(response);
             }
@@ -75,5 +81,38 @@ public static class ProfessionalEndpoints
             return success ? Results.NoContent() : Results.NotFound();
         })
         .RequireAuthorization("RequireOwnerRole");
+
+        // ── Horários individuais ───────────────────────────────────────────────
+        group.MapPut("/{id:guid}/working-hours", async (
+            Guid id,
+            [FromBody] UpdateProfessionalWorkingHoursRequest request,
+            IProfessionalService service,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
+        {
+            // Staff só pode atualizar seus próprios horários
+            if (!user.HasClaim("role", "Owner") && !user.HasClaim("role", "Receptionist"))
+            {
+                var idStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!Guid.TryParse(idStr, out var callerId) || callerId != id)
+                    return Results.Forbid();
+            }
+
+            try
+            {
+                var professional = await service.UpdateWorkingHoursAsync(id, request.WorkingHoursJson, ct);
+
+                var response = new ProfessionalResponse(
+                    professional.Id, professional.Name, professional.Email,
+                    professional.Role, professional.CanManageServices,
+                    professional.CalendarColor, professional.IsActive, professional.CreatedAt, professional.WorkingHoursJson);
+
+                return Results.Ok(response);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+        });
     }
 }

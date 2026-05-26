@@ -6,6 +6,7 @@ import { Plus, Trash2, Scissors } from 'lucide-react'
 
 import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
+import { CurrencyInput } from '@/shared/components/ui/CurrencyInput'
 import { appToast } from '@/shared/lib/toast'
 import { onboardingService } from '@/features/onboarding/services/onboarding.service'
 
@@ -38,6 +39,8 @@ export function Step3Services({ onNext }: Step3Props) {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
@@ -92,15 +95,12 @@ export function Step3Services({ onNext }: Step3Props) {
             error={errors.durationMinutes?.message}
             {...register('durationMinutes', { valueAsNumber: true })}
           />
-          <Input
+          <CurrencyInput
             id="price"
-            type="number"
             label="Preço (R$)"
-            placeholder="0.00"
-            min={0}
-            step={0.01}
+            value={watch('price')}
+            onChange={(v) => setValue('price', v, { shouldValidate: true })}
             error={errors.price?.message}
-            {...register('price', { valueAsNumber: true })}
           />
         </div>
 
@@ -125,7 +125,7 @@ export function Step3Services({ onNext }: Step3Props) {
               <div>
                 <p className="text-sm font-medium text-white">{s.name}</p>
                 <p className="text-xs text-slate-500">
-                  {s.durationMinutes} min · R$ {s.price.toFixed(2)}
+                  {s.durationMinutes} min · {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(s.price)}
                 </p>
               </div>
               <button

@@ -52,6 +52,13 @@ export const agendaService = {
     }
   },
 
+  async searchCustomers(query: string): Promise<CustomerResponse[]> {
+    const res = await api.get<{ items: CustomerResponse[] }>('/customers/list', {
+      params: { search: query, page: 1, pageSize: 8 },
+    })
+    return res.data.items
+  },
+
   async createCustomer(data: CreateCustomerRequest): Promise<CustomerResponse> {
     const res = await api.post<CustomerResponse>('/customers', data)
     return res.data

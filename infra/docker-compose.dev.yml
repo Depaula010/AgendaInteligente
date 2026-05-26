@@ -1,0 +1,63 @@
+version: '3.8'
+
+# Infraestrutura local para desenvolvimento
+# Sobe apenas PostgreSQL e Redis — as aplicações rodam localmente (dotnet run / npm run dev)
+#
+# Uso:
+#   docker compose -f infra/docker-compose.dev.yml up -d
+#   docker compose -f infra/docker-compose.dev.yml down
+#   docker compose -f infra/docker-compose.dev.yml down -v   # apaga dados
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: agenda_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: agendainteligente_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: agenda_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass redis123
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis123", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Ferramenta web para inspecionar o Redis (opcional — acesse http://localhost:8001)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: agenda_redis_ui
+    environment:
+      REDIS_HOSTS: "local:agenda_redis:6379:0:redis123"
+    ports:
+      - "8001:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - tools   # só sobe se passar --profile tools
+
+volumes:
+  postgres_data:
+  redis_data:

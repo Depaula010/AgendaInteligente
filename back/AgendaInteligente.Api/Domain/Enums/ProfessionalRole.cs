@@ -15,5 +15,11 @@ public enum ProfessionalRole
     /// Dono do estabelecimento. Possui acesso total ao painel:
     /// visualização de todas as agendas, gestão de equipe, serviços e configurações.
     /// </summary>
-    Owner = 1
+    Owner = 1,
+
+    /// <summary>
+    /// Recepcionista. Acessa todas as agendas e gerencia clientes.
+    /// Pode receber a permissão extra CanManageServices para editar o catálogo de serviços.
+    /// </summary>
+    Receptionist = 2
 }

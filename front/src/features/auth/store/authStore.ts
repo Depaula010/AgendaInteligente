@@ -33,6 +33,7 @@ export const useAuthStore = create<AuthState>()(
             name: claims.name,
             tenantId: claims.tenantId,
             role: claims.role,
+            canManageServices: claims.can_manage_services === 'true',
           }
           set({ token, refreshToken: refreshToken ?? null, user, isAuthenticated: true })
         } catch {

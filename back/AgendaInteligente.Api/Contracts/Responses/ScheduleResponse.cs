@@ -5,6 +5,7 @@ namespace AgendaInteligente.Api.Contracts.Responses;
 public record ScheduleResponse(
     Guid Id,
     Guid CustomerId,
+    string? CustomerName,
     Guid ProfessionalId,
     Guid ServiceId,
     DateTime StartDateTime,

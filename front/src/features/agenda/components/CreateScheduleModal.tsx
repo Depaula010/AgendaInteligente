@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -12,25 +12,22 @@ import { Select } from '@/shared/components/ui/Select'
 import { appToast } from '@/shared/lib/toast'
 import { agendaService } from '@/features/agenda/services/agenda.service'
 import type { ConflictInfo, CustomerResponse, RecurringConflictInfo } from '@/features/agenda/types/agenda.types'
+import { fmtDateTime, fmtTime } from '@/shared/utils/date'
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
-const schema = z
-  .object({
-    professionalId: z.string().min(1, 'Selecione um profissional'),
-    serviceId: z.string().min(1, 'Selecione um serviço'),
-    date: z.string().min(1, 'Selecione a data'),
-    startDateTime: z.string().min(1, 'Selecione um horário'),
-    phone: z.string().min(8, 'Informe o telefone'),
-    customerName: z.string().optional(),
-    notes: z.string().optional(),
-    recurring: z.boolean(),
-    repeatWeeklyCount: z.number().min(1).max(52),
-  })
-  .refine(
-    () => true,
-    { message: '', path: [] },
-  )
+const schema = z.object({
+  professionalId: z.string().min(1, 'Selecione um profissional'),
+  serviceId: z.string().min(1, 'Selecione um serviço'),
+  date: z.string().min(1, 'Selecione a data'),
+  startDateTime: z.string().min(1, 'Selecione um horário'),
+  newCustomerName: z.string().optional(),
+  newCustomerPhone: z.string().optional(),
+  notes: z.string().optional(),
+  repeatType: z.enum(['none', 'weekly', 'monthly']),
+  repeatCount: z.number().min(1).max(260).optional(),
+  indefinite: z.boolean(),
+})
 
 type FormValues = z.infer<typeof schema>
 
@@ -46,8 +43,16 @@ interface CreateScheduleModalProps {
 
 export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateScheduleModalProps) {
   const queryClient = useQueryClient()
+
+  // customer state
   const [foundCustomer, setFoundCustomer] = useState<CustomerResponse | null | undefined>(undefined)
-  const [searchingPhone, setSearchingPhone] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [creatingNew, setCreatingNew] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  // schedule state
   const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null)
   const [recurringConflict, setRecurringConflict] = useState<RecurringConflictInfo | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
@@ -70,24 +75,43 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
       professionalId: '',
       serviceId: '',
       startDateTime: '',
-      phone: '',
-      customerName: '',
+      newCustomerName: '',
+      newCustomerPhone: '',
       notes: '',
-      recurring: false,
-      repeatWeeklyCount: 4,
+      repeatType: 'none' as const,
+      repeatCount: 4,
+      indefinite: false,
     },
   })
 
   const watchedProfessional = watch('professionalId')
   const watchedService = watch('serviceId')
   const watchedDate = watch('date')
-  const watchedRecurring = watch('recurring')
+  const watchedRepeatType = watch('repeatType')
+  const watchedIndefinite = watch('indefinite')
 
   // Reset slot when inputs change
   useEffect(() => {
     setSelectedSlot(null)
     setValue('startDateTime', '')
   }, [watchedProfessional, watchedService, watchedDate, setValue])
+
+  // Debounce search query
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 300)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const { data: professionals = [] } = useQuery({
     queryKey: ['professionals'],
@@ -109,16 +133,32 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
     staleTime: 0,
   })
 
-  async function handlePhoneSearch() {
-    const phone = watch('phone').trim()
-    if (!phone) return
-    setSearchingPhone(true)
-    try {
-      const customer = await agendaService.getCustomerByPhone(phone)
-      setFoundCustomer(customer)
-    } finally {
-      setSearchingPhone(false)
-    }
+  const { data: searchResults = [], isFetching: searchFetching } = useQuery({
+    queryKey: ['customers-search', debouncedQuery],
+    queryFn: () => agendaService.searchCustomers(debouncedQuery),
+    enabled: debouncedQuery.length >= 2 && !foundCustomer,
+    staleTime: 30_000,
+  })
+
+  function selectCustomer(customer: CustomerResponse) {
+    setFoundCustomer(customer)
+    setSearchQuery(customer.name)
+    setShowDropdown(false)
+    setCreatingNew(false)
+  }
+
+  function clearCustomer() {
+    setFoundCustomer(undefined)
+    setSearchQuery('')
+    setDebouncedQuery('')
+    setShowDropdown(false)
+    setCreatingNew(false)
+  }
+
+  function startCreatingNew() {
+    setFoundCustomer(null)
+    setCreatingNew(true)
+    setShowDropdown(false)
   }
 
   const createMutation = useMutation({
@@ -128,23 +168,22 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
       if (foundCustomer) {
         customerId = foundCustomer.id
       } else {
-        if (!values.customerName?.trim()) {
-          throw new Error('MISSING_NAME')
-        }
-        const created = await agendaService.createCustomer({
-          name: values.customerName.trim(),
-          phoneNumber: values.phone.trim(),
-        })
+        const name = values.newCustomerName?.trim()
+        const phone = values.newCustomerPhone?.trim()
+        if (!name) throw new Error('MISSING_NAME')
+        if (!phone) throw new Error('MISSING_PHONE')
+        const created = await agendaService.createCustomer({ name, phoneNumber: phone })
         customerId = created.id
       }
 
-      if (values.recurring) {
+      if (values.repeatType !== 'none') {
         return agendaService.createRecurringSchedule({
           customerId,
           professionalId: values.professionalId,
           serviceId: values.serviceId,
           startDateTime: values.startDateTime,
-          repeatWeeklyCount: values.repeatWeeklyCount,
+          repeatType: values.repeatType,
+          repeatCount: values.indefinite ? undefined : values.repeatCount,
           notes: values.notes || undefined,
         })
       }
@@ -157,18 +196,22 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
         notes: values.notes || undefined,
       })
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] })
-      appToast.success(
-        watch('recurring')
-          ? `${watch('repeatWeeklyCount')} agendamentos recorrentes criados!`
-          : 'Agendamento criado com sucesso!',
-      )
+      if (watch('repeatType') !== 'none' && Array.isArray(result)) {
+        appToast.success(`Série recorrente criada: ${result.length} agendamentos!`)
+      } else {
+        appToast.success('Agendamento criado com sucesso!')
+      }
       onClose()
     },
     onError: (err: unknown) => {
       if ((err as Error).message === 'MISSING_NAME') {
         appToast.error('Informe o nome do cliente.')
+        return
+      }
+      if ((err as Error).message === 'MISSING_PHONE') {
+        appToast.error('Informe o telefone do cliente.')
         return
       }
       const axiosErr = err as AxiosError<ConflictInfo & RecurringConflictInfo>
@@ -260,13 +303,9 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
             )}
 
             {!loadingSlots && slotsData && slotsData.slots.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-36 overflow-y-auto overscroll-contain pr-0.5">
                 {slotsData.slots.map((slot) => {
-                  const label = new Date(slot).toLocaleTimeString('pt-BR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    timeZone: 'UTC',
-                  })
+                  const label = fmtTime(slot)
                   const isSelected = slot === selectedSlot
                   return (
                     <button
@@ -308,11 +347,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
                 <p className="text-xs text-slate-400 font-medium">Horários alternativos:</p>
                 <div className="flex flex-wrap gap-2">
                   {conflictInfo.suggestedAlternatives.map((alt) => {
-                    const label = new Date(alt).toLocaleTimeString('pt-BR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      timeZone: 'UTC',
-                    })
+                    const label = fmtTime(alt)
                     return (
                       <button
                         key={alt}
@@ -334,33 +369,11 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
           </div>
         )}
 
-        {/* Customer search */}
+        {/* ── Customer section ──────────────────────────────────────────────── */}
         <div className="flex flex-col gap-3">
           <p className="text-sm font-medium text-slate-300">Cliente</p>
 
-          <div className="flex gap-2">
-            <Input
-              {...register('phone')}
-              id="phone"
-              type="tel"
-              placeholder="+55 11 99999-9999"
-              error={errors.phone?.message}
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handlePhoneSearch}
-              isLoading={searchingPhone}
-              leftIcon={<Search className="h-4 w-4" aria-hidden="true" />}
-              className="self-start mt-0 whitespace-nowrap"
-            >
-              Buscar
-            </Button>
-          </div>
-
-          {/* Found customer */}
+          {/* Selected customer card */}
           {foundCustomer && (
             <div className="flex items-center justify-between rounded-xl bg-green-500/10 border border-green-500/20 px-4 py-3">
               <div className="flex items-center gap-3">
@@ -372,7 +385,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
               </div>
               <button
                 type="button"
-                onClick={() => setFoundCustomer(undefined)}
+                onClick={clearCustomer}
                 className="text-slate-500 hover:text-white transition-colors"
                 aria-label="Remover cliente selecionado"
               >
@@ -381,18 +394,108 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
             </div>
           )}
 
-          {/* Not found — inline form */}
-          {foundCustomer === null && (
+          {/* Search input with autocomplete */}
+          {!foundCustomer && !creatingNew && (
+            <div className="relative" ref={searchRef}>
+              <div className="relative flex items-center">
+                <Search className="absolute left-3.5 h-4 w-4 text-slate-500 pointer-events-none" aria-hidden="true" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    setShowDropdown(true)
+                  }}
+                  onFocus={() => { if (debouncedQuery.length >= 2) setShowDropdown(true) }}
+                  placeholder="Buscar por nome ou telefone..."
+                  className="w-full rounded-xl border border-white/10 bg-white/5 pl-10 pr-10 py-3.5 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent hover:border-white/20 transition-all"
+                />
+                {searchFetching && (
+                  <div className="absolute right-3.5 h-4 w-4 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
+                )}
+              </div>
+
+              {/* Dropdown */}
+              {showDropdown && debouncedQuery.length >= 2 && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-xl border border-white/10 bg-[#0f172a] shadow-2xl overflow-hidden">
+                  {searchResults.length > 0 && (
+                    <ul>
+                      {searchResults.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => selectCustomer(c)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors"
+                          >
+                            <div className="h-8 w-8 rounded-lg bg-brand-500/20 flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs font-bold text-brand-400">
+                                {c.name[0]?.toUpperCase() ?? '?'}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white truncate">{c.name}</p>
+                              <p className="text-xs text-slate-400">{c.phoneNumber}</p>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {searchResults.length === 0 && !searchFetching && (
+                    <p className="px-4 py-3 text-sm text-slate-500">
+                      Nenhum cliente encontrado para "{debouncedQuery}".
+                    </p>
+                  )}
+
+                  <div className="border-t border-white/10">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={startCreatingNew}
+                      className="w-full flex items-center gap-2 px-4 py-3 text-sm text-brand-400 hover:bg-white/5 transition-colors"
+                    >
+                      <UserPlus className="h-4 w-4" aria-hidden="true" />
+                      Criar novo cliente
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Create new customer form */}
+          {creatingNew && (
             <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/3 p-4">
-              <div className="flex items-center gap-2">
-                <UserPlus className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                <p className="text-sm text-slate-400">Cliente não encontrado. Informe o nome:</p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                  <p className="text-sm text-slate-400">Novo cliente</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearCustomer}
+                  className="text-slate-500 hover:text-white transition-colors"
+                  aria-label="Cancelar"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
               <Input
-                {...register('customerName')}
-                id="customerName"
+                {...register('newCustomerName')}
+                id="newCustomerName"
+                label="Nome"
                 placeholder="Nome completo"
-                error={errors.customerName?.message}
+                error={errors.newCustomerName?.message}
+              />
+              <Input
+                {...register('newCustomerPhone')}
+                id="newCustomerPhone"
+                type="tel"
+                label="Telefone"
+                placeholder="+55 11 99999-9999"
+                error={errors.newCustomerPhone?.message}
               />
             </div>
           )}
@@ -409,25 +512,48 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
 
         {/* Recurring */}
         <div className="flex flex-col gap-3">
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              {...register('recurring')}
-              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-500"
-            />
-            <span className="text-sm text-slate-300">Repetir semanalmente</span>
-          </label>
+          <Controller
+            name="repeatType"
+            control={control}
+            render={({ field }) => (
+              <Select
+                {...field}
+                id="repeatType"
+                label="Repetição"
+                options={[
+                  { value: 'none', label: 'Não repetir' },
+                  { value: 'weekly', label: 'Semanal' },
+                  { value: 'monthly', label: 'Mensal' },
+                ]}
+              />
+            )}
+          />
 
-          {watchedRecurring && (
-            <Input
-              {...register('repeatWeeklyCount', { valueAsNumber: true })}
-              id="repeatWeeklyCount"
-              type="number"
-              label="Número de semanas (máx. 52)"
-              min={1}
-              max={52}
-              error={errors.repeatWeeklyCount?.message}
-            />
+          {watchedRepeatType !== 'none' && (
+            <>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  {...register('indefinite')}
+                  className="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-500"
+                />
+                <span className="text-sm text-slate-300">
+                  Prazo indeterminado (cria para 5 anos)
+                </span>
+              </label>
+
+              {!watchedIndefinite && (
+                <Input
+                  {...register('repeatCount', { valueAsNumber: true })}
+                  id="repeatCount"
+                  type="number"
+                  label={watchedRepeatType === 'monthly' ? 'Número de meses (máx. 60)' : 'Número de semanas (máx. 260)'}
+                  min={1}
+                  max={watchedRepeatType === 'monthly' ? 60 : 260}
+                  error={errors.repeatCount?.message}
+                />
+              )}
+            </>
           )}
         </div>
 
@@ -443,16 +569,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
                 <p className="text-xs text-slate-400 font-medium">Datas com conflito:</p>
                 <ul className="list-disc list-inside text-xs text-slate-400">
                   {recurringConflict.conflictingDates.map((d) => (
-                    <li key={d}>
-                      {new Date(d).toLocaleDateString('pt-BR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZone: 'UTC',
-                      })}
-                    </li>
+                    <li key={d}>{fmtDateTime(d)}</li>
                   ))}
                 </ul>
               </div>
@@ -466,7 +583,7 @@ export function CreateScheduleModal({ isOpen, onClose, initialStart }: CreateSch
             Cancelar
           </Button>
           <Button type="submit" isLoading={createMutation.isPending} className="flex-1">
-            {watchedRecurring ? 'Criar série recorrente' : 'Criar agendamento'}
+            {watchedRepeatType !== 'none' ? 'Criar série recorrente' : 'Criar agendamento'}
           </Button>
         </div>
       </form>

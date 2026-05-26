@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -20,6 +21,8 @@ import { whatsappService } from '@/features/whatsapp/services/whatsapp.service'
 import { pushService } from '@/features/notificacoes/services/push.service'
 import { usePushNotifications } from '@/shared/hooks/usePushNotifications'
 import { useDarkMode } from '@/shared/hooks/useDarkMode'
+import { configuracoesService } from '@/features/configuracoes/services/configuracoes.service'
+import { setAppTimezone } from '@/shared/utils/date'
 
 const NAV_ITEMS = [
   { label: 'Agenda',        icon: CalendarDays, to: ROUTES.AGENDA,        whatsapp: false },
@@ -73,9 +76,28 @@ function SidebarNavItem({ label, icon: Icon, to, badge }: NavItemProps) {
 }
 
 export function DashboardLayout() {
-  const user   = useAuthStore((s) => s.user)
-  const logout = useAuthStore((s) => s.logout)
+  const user    = useAuthStore((s) => s.user)
+  const logout  = useAuthStore((s) => s.logout)
+  const isOwner = user?.role === 'Owner'
   const { pathname } = useLocation()
+
+  const visibleNav = NAV_ITEMS.filter(
+    (item) => isOwner || (item.label !== 'Equipe' && item.label !== 'WhatsApp'),
+  )
+
+  const visibleBottomNav = BOTTOM_NAV.filter(
+    (item) => isOwner || item.label !== 'WhatsApp',
+  )
+
+  const { data: tenantSettings } = useQuery({
+    queryKey: ['tenant-settings'],
+    queryFn: configuracoesService.get,
+    staleTime: Infinity,
+  })
+
+  useEffect(() => {
+    if (tenantSettings?.timeZoneId) setAppTimezone(tenantSettings.timeZoneId)
+  }, [tenantSettings?.timeZoneId])
 
   const { data: whatsappStatus } = useQuery({
     queryKey: ['whatsapp-status'],
@@ -119,7 +141,7 @@ export function DashboardLayout() {
           className="flex-1 p-3 flex flex-col gap-1 overflow-y-auto custom-scrollbar"
           aria-label="Navegação principal"
         >
-          {NAV_ITEMS.map((item) => (
+          {visibleNav.map((item) => (
             <SidebarNavItem
               key={item.to}
               {...item}
@@ -234,7 +256,7 @@ export function DashboardLayout() {
           aria-label="Navegação mobile"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          {BOTTOM_NAV.map(({ label, icon: Icon, to, whatsapp }) => {
+          {visibleBottomNav.map(({ label, icon: Icon, to, whatsapp }) => {
             const isActive = pathname === to || pathname.startsWith(to + '/')
             const showBadge = whatsapp && whatsappDisconnected
             return (

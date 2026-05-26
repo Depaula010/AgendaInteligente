@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
+import { useTenantTimezone } from '@/shared/hooks/useTenantTimezone'
+import { useAuthStore } from '@/features/auth/store/authStore'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -8,6 +10,7 @@ import ptBrLocale from '@fullcalendar/core/locales/pt-br'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/shared/utils/cn'
 import { Skeleton } from '@/shared/components/ui/Skeleton'
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery'
 import { agendaService } from '@/features/agenda/services/agenda.service'
 import {
   ScheduleStatus,
@@ -26,9 +29,11 @@ interface SelectedEvent {
   service: ServiceCatalogResponse | undefined
 }
 
-const isMobile = typeof window !== 'undefined' && window.innerWidth < 640
-
 export function AgendaPage() {
+  const tz      = useTenantTimezone()
+  const user    = useAuthStore((s) => s.user)
+  const isStaff = user?.role === 'Staff'
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const calendarRef = useRef<FullCalendar>(null)
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [selectedEvent, setSelectedEvent] = useState<SelectedEvent | null>(null)
@@ -37,10 +42,14 @@ export function AgendaPage() {
   })
 
   const { data: schedules = [], isLoading: loadingSchedules } = useQuery({
-    queryKey: ['schedules', dateRange],
+    queryKey: ['schedules', dateRange, isStaff ? user?.id : null],
     queryFn: () =>
       dateRange.start
-        ? agendaService.getSchedules(dateRange.start, dateRange.end)
+        ? agendaService.getSchedules(
+            dateRange.start,
+            dateRange.end,
+            isStaff ? user?.id : undefined,
+          )
         : Promise.resolve([]),
     enabled: !!dateRange.start,
   })
@@ -68,7 +77,9 @@ export function AgendaPage() {
             service?.calendarColor ?? professional?.calendarColor ?? DEFAULT_COLOR
           return {
             id: s.id,
-            title: service?.name ?? 'Agendamento',
+            title: s.customerName
+              ? `${service?.name ?? 'Agendamento'} - ${s.customerName}`
+              : (service?.name ?? 'Agendamento'),
             start: s.startDateTime,
             end: s.endDateTime,
             backgroundColor: color,
@@ -114,15 +125,22 @@ export function AgendaPage() {
         style={{ minHeight: 0 }}
       >
         <FullCalendar
+          key={isMobile ? 'mobile' : 'desktop'}
           ref={calendarRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView={isMobile ? 'timeGridDay' : 'timeGridWeek'}
           headerToolbar={
             isMobile
-              ? { left: 'prev,next', center: 'title', right: 'timeGridDay,timeGridWeek' }
+              ? { left: 'prev,next', center: 'title', right: 'timeGridDay,timeGridWeek,dayGridMonth' }
               : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
           }
+          dayHeaderFormat={
+            isMobile
+              ? { weekday: 'narrow', day: 'numeric' }
+              : undefined
+          }
           locale={ptBrLocale}
+          timeZone={tz}
           events={events}
           selectable
           selectMirror

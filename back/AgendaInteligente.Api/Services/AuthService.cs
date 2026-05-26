@@ -49,9 +49,11 @@ public sealed class AuthService : IAuthService
         {
             new(JwtRegisteredClaimNames.Sub, professional.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, professional.Email),
+            new(JwtRegisteredClaimNames.Name, professional.Name),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new("tenant_id", professional.TenantId.ToString()),
-            new("role", professional.Role.ToString())
+            new("role", professional.Role.ToString()),
+            new("can_manage_services", professional.CanManageServices ? "true" : "false")
         };
 
         var tokenDescriptor = new SecurityTokenDescriptor

@@ -274,6 +274,12 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("RequireOwnerRole", policy =>
         policy.RequireClaim("role", "Owner"));
+
+    options.AddPolicy("RequireServiceManagementAccess", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.HasClaim("role", "Owner") ||
+            (ctx.User.HasClaim("role", "Receptionist") &&
+             ctx.User.HasClaim("can_manage_services", "true"))));
 });
 
 // ── Build ──────────────────────────────────────────────────────────────────────

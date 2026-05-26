@@ -16,6 +16,7 @@ public sealed class ScheduleService : IScheduleService
     private readonly IScheduleRepository         _scheduleRepo;
     private readonly IServiceCatalogRepository   _serviceRepo;
     private readonly ITenantSettingsRepository   _settingsRepo;
+    private readonly IProfessionalRepository     _professionalRepo;
     private readonly ICalendarSyncQueue          _syncQueue;
     private readonly IWaitlistService            _waitlistService;
     private readonly ILogger<ScheduleService>    _logger;
@@ -24,16 +25,18 @@ public sealed class ScheduleService : IScheduleService
         IScheduleRepository scheduleRepo,
         IServiceCatalogRepository serviceRepo,
         ITenantSettingsRepository settingsRepo,
+        IProfessionalRepository professionalRepo,
         ICalendarSyncQueue syncQueue,
         IWaitlistService waitlistService,
         ILogger<ScheduleService> logger)
     {
-        _scheduleRepo    = scheduleRepo;
-        _serviceRepo     = serviceRepo;
-        _settingsRepo    = settingsRepo;
-        _syncQueue       = syncQueue;
-        _waitlistService = waitlistService;
-        _logger          = logger;
+        _scheduleRepo     = scheduleRepo;
+        _serviceRepo      = serviceRepo;
+        _settingsRepo     = settingsRepo;
+        _professionalRepo = professionalRepo;
+        _syncQueue        = syncQueue;
+        _waitlistService  = waitlistService;
+        _logger           = logger;
     }
 
     public Task<IReadOnlyList<Schedule>> GetByDateRangeAsync(
@@ -357,7 +360,7 @@ public sealed class ScheduleService : IScheduleService
         var durationMinutes = service.DurationMinutes;
         var alternatives    = new List<DateTime>();
         var settings        = await _settingsRepo.GetAsync(ct);
-        var tz              = GetTenantTimeZone(settings);
+        var tz              = TenantTimeZoneHelper.GetTimeZone(settings);
 
         // Usa a data local do tenant para não perder um dia por diferença de UTC
         var localRequestedTime = TimeZoneInfo.ConvertTimeFromUtc(requestedTime, tz);
@@ -414,9 +417,10 @@ public sealed class ScheduleService : IScheduleService
         var service = await _serviceRepo.GetByIdAsync(serviceId, ct)
             ?? throw new KeyNotFoundException($"Serviço '{serviceId}' não encontrado ou inativo.");
 
-        var settings = await _settingsRepo.GetAsync(ct);
-        var tz       = GetTenantTimeZone(settings);
-        var window   = ResolveWorkingWindow(date, settings, service.DurationMinutes, tz);
+        var professional = await _professionalRepo.GetByIdAsync(professionalId, ct);
+        var settings     = await _settingsRepo.GetAsync(ct);
+        var tz           = TenantTimeZoneHelper.GetTimeZone(settings);
+        var window       = ResolveWorkingWindow(date, settings, service.DurationMinutes, tz, professional?.WorkingHoursJson);
 
         if (window is null)
             return Array.Empty<DateTime>();
@@ -444,11 +448,17 @@ public sealed class ScheduleService : IScheduleService
 
     public async Task<IReadOnlyList<Schedule>> CreateRecurringAsync(
         Guid customerId, Guid professionalId, Guid serviceId,
-        DateTime firstStart, int repeatWeeklyCount, string? notes = null,
-        CancellationToken ct = default)
+        DateTime firstStart, string repeatType, int? repeatCount,
+        string? notes = null, CancellationToken ct = default)
     {
-        if (repeatWeeklyCount < 1 || repeatWeeklyCount > 52)
-            throw new ArgumentException("O número de ocorrências deve ser entre 1 e 52.", nameof(repeatWeeklyCount));
+        bool monthly    = string.Equals(repeatType, "monthly", StringComparison.OrdinalIgnoreCase);
+        bool indefinite = repeatCount is null;
+        int  maxCount   = monthly ? 60 : 260; // 5 anos
+        int  count      = repeatCount ?? maxCount;
+
+        if (!indefinite && (count < 1 || count > maxCount))
+            throw new ArgumentException(
+                $"O número de ocorrências deve ser entre 1 e {maxCount}.", nameof(repeatCount));
 
         if (firstStart.Kind != DateTimeKind.Utc)
             firstStart = firstStart.ToUniversalTime();
@@ -456,41 +466,71 @@ public sealed class ScheduleService : IScheduleService
         var service = await _serviceRepo.GetByIdAsync(serviceId, ct)
             ?? throw new KeyNotFoundException($"Serviço '{serviceId}' não encontrado ou inativo.");
 
-        var starts = Enumerable.Range(0, repeatWeeklyCount)
-            .Select(i => firstStart.AddDays(7 * i))
+        var starts = Enumerable.Range(0, count)
+            .Select(i => monthly ? firstStart.AddMonths(i) : firstStart.AddDays(7 * i))
             .ToList();
 
-        // Valida todos os conflitos antes de criar qualquer registro
-        var conflictingDates = new List<DateTime>();
-        foreach (var start in starts)
+        List<Schedule> schedules;
+
+        if (indefinite)
         {
-            var end = start.AddMinutes(service.DurationMinutes);
-            var conflicts = await _scheduleRepo.GetConflictingAsync(professionalId, start, end, ct);
-            if (conflicts.Count > 0)
-                conflictingDates.Add(start);
+            // Prazo indeterminado: pula conflitos e cria o restante
+            schedules = [];
+            foreach (var start in starts)
+            {
+                var end = start.AddMinutes(service.DurationMinutes);
+                var conflicts = await _scheduleRepo.GetConflictingAsync(professionalId, start, end, ct);
+                if (conflicts.Count == 0)
+                    schedules.Add(new Schedule
+                    {
+                        CustomerId     = customerId,
+                        ProfessionalId = professionalId,
+                        ServiceId      = serviceId,
+                        StartDateTime  = start,
+                        EndDateTime    = end,
+                        Status         = ScheduleStatus.Pending,
+                        Notes          = notes
+                    });
+            }
+
+            if (schedules.Count == 0)
+                throw new InvalidOperationException(
+                    "Nenhum horário disponível nos próximos 2 anos para criar a série.");
         }
-
-        if (conflictingDates.Count > 0)
-            throw new ScheduleConflictException(
-                $"Há conflitos em {conflictingDates.Count} data(s) da série recorrente.",
-                conflictingDates);
-
-        var schedules = starts.Select(start => new Schedule
+        else
         {
-            CustomerId     = customerId,
-            ProfessionalId = professionalId,
-            ServiceId      = serviceId,
-            StartDateTime  = start,
-            EndDateTime    = start.AddMinutes(service.DurationMinutes),
-            Status         = ScheduleStatus.Pending,
-            Notes          = notes
-        }).ToList();
+            // Contagem definida: valida todos os conflitos antes de criar qualquer registro
+            var conflictingDates = new List<DateTime>();
+            foreach (var start in starts)
+            {
+                var end = start.AddMinutes(service.DurationMinutes);
+                var conflicts = await _scheduleRepo.GetConflictingAsync(professionalId, start, end, ct);
+                if (conflicts.Count > 0)
+                    conflictingDates.Add(start);
+            }
+
+            if (conflictingDates.Count > 0)
+                throw new ScheduleConflictException(
+                    $"Há conflitos em {conflictingDates.Count} data(s) da série recorrente.",
+                    conflictingDates);
+
+            schedules = starts.Select(start => new Schedule
+            {
+                CustomerId     = customerId,
+                ProfessionalId = professionalId,
+                ServiceId      = serviceId,
+                StartDateTime  = start,
+                EndDateTime    = start.AddMinutes(service.DurationMinutes),
+                Status         = ScheduleStatus.Pending,
+                Notes          = notes
+            }).ToList();
+        }
 
         var created = await _scheduleRepo.CreateBatchAsync(schedules, ct);
 
         _logger.LogInformation(
-            "Série recorrente criada: {Count} agendamentos, Profissional={ProfessionalId}, Início={First}",
-            created.Count, professionalId, firstStart);
+            "Série recorrente criada: {Count} agendamentos ({Type}), Profissional={ProfessionalId}, Início={First}",
+            created.Count, repeatType, professionalId, firstStart);
 
         foreach (var s in created)
             await _syncQueue.EnqueueAsync(
@@ -503,14 +543,6 @@ public sealed class ScheduleService : IScheduleService
 
     private sealed record WorkingHoursEntry(int DayOfWeek, string OpenTime, string CloseTime);
 
-    private static TimeZoneInfo GetTenantTimeZone(TenantSettings? settings)
-    {
-        var id = settings?.TimeZoneId;
-        if (string.IsNullOrWhiteSpace(id)) return TimeZoneInfo.Utc;
-        try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
-        catch { return TimeZoneInfo.Utc; }
-    }
-
     /// <summary>
     /// Resolve a janela de trabalho (UTC) para uma data local do tenant, considerando:
     ///   1. DaysOffJson — se a data local for folga, retorna null.
@@ -520,7 +552,8 @@ public sealed class ScheduleService : IScheduleService
     /// Os horários resultantes são convertidos para UTC usando o fuso <paramref name="tz"/>.
     /// </summary>
     private static (DateTime Start, DateTime End)? ResolveWorkingWindow(
-        DateOnly localDate, TenantSettings? settings, int durationMinutes, TimeZoneInfo tz)
+        DateOnly localDate, TenantSettings? settings, int durationMinutes, TimeZoneInfo tz,
+        string? professionalWorkingHoursJson = null)
     {
         // ── 1. Verifica folgas explícitas (data local) ────────────────────────
         if (settings?.DaysOffJson is { Length: > 2 } daysOffJson)
@@ -530,11 +563,13 @@ public sealed class ScheduleService : IScheduleService
                 return null;
         }
 
-        // ── 2. Resolve horário do dia (usa dia da semana local) ───────────────
+        // ── 2. Resolve horário do dia — profissional tem prioridade sobre tenant ─
         TimeOnly openTime  = new(8,  0);
         TimeOnly closeTime = new(18, 0);
 
-        if (settings?.WorkingHoursJson is { Length: > 2 } hoursJson)
+        var effectiveHoursJson = professionalWorkingHoursJson ?? settings?.WorkingHoursJson;
+
+        if (effectiveHoursJson is { Length: > 2 } hoursJson)
         {
             var entries = JsonSerializer.Deserialize<List<WorkingHoursEntry>>(hoursJson, _jsonOpts) ?? [];
             if (entries.Count > 0)

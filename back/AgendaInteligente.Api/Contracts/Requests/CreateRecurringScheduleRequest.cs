@@ -5,6 +5,7 @@ public record CreateRecurringScheduleRequest(
     Guid     ProfessionalId,
     Guid     ServiceId,
     DateTime StartDateTime,
-    int      RepeatWeeklyCount,
+    string   RepeatType,    // "weekly" | "monthly"
+    int?     RepeatCount,   // null = indefinite (2 years)
     string?  Notes = null
 );

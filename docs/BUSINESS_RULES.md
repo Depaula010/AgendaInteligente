@@ -32,13 +32,31 @@ Este documento descreve as regras de negócio, fluxos de usuários e funcionalid
   * O dono pode configurar gatilhos de ausência (ex: a cada 15 dias, ou a cada 30 dias sem agendar).
   * O bot enviará uma mensagem proativa: *"Olá [Nome], você não agendou seu serviço este mês. Gostaria de agendar para o mesmo horário e dia da semana da sua última visita?"*.
 
-## 5. Gestão de Equipe e Permissões (Owner vs. Staff)
-* **Objetivo:** Permitir que estabelecimentos com múltiplos profissionais operem na mesma conta de forma organizada.
-* **Regras:**
-  * O dono do estabelecimento (Owner) possui acesso total (Admin).
-  * O Owner pode convidar/cadastrar profissionais (Staff) e configurar os níveis de acesso de cada um.
-  * O Owner pode visualizar a agenda de TODOS os profissionais no painel PWA.
-  * O profissional (Staff) pode ter acesso restrito para ver apenas a própria agenda ou a agenda geral (dependendo da configuração do Owner).
+## 5. Gestão de Equipe e Permissões (Owner / Receptionist / Staff)
+* **Objetivo:** Permitir que estabelecimentos com múltiplos profissionais operem na mesma conta de forma organizada, com papéis diferenciados por função.
+* **Roles disponíveis:**
+  * **Owner (Proprietário):** acesso total ao painel — agenda de todos, equipe, serviços, configurações globais, WhatsApp.
+  * **Receptionist (Recepcionista):** acessa todas as agendas, gerencia clientes e agendamentos. Não vê WhatsApp, Equipe nem Configurações globais.
+  * **Staff (Colaborador/Barbeiro):** acessa apenas a própria agenda e os próprios bloqueios. Não vê WhatsApp, Equipe nem Configurações globais.
+* **Permissão extra (Receptionist):**
+  * O Owner pode conceder `CanManageServices` à Recepcionista, permitindo criar, editar e excluir serviços do catálogo.
+  * Sem essa permissão, a Recepcionista apenas visualiza os serviços.
+* **Matriz de acesso:**
+
+| Funcionalidade | Owner | Recepcionista + CanManageServices | Recepcionista | Colaborador |
+|---|---|---|---|---|
+| Ver todas as agendas | ✅ | ✅ | ✅ | ❌ |
+| Criar/cancelar agendamentos | ✅ | ✅ | ✅ | ✅ |
+| Gerenciar clientes | ✅ | ✅ | ✅ | ✅ |
+| Gerenciar serviços (escrita) | ✅ | ✅ | ❌ | ❌ |
+| WhatsApp / Equipe | ✅ | ❌ | ❌ | ❌ |
+| Configurações globais | ✅ | ❌ | ❌ | ❌ |
+| Bloqueios de agenda (próprio) | ✅ | ✅ | ✅ | ✅ |
+
+* **Regras de configuração:**
+  * O Owner define o role e as permissões extras ao cadastrar ou editar um profissional na tela Equipe.
+  * O role padrão ao criar um novo profissional é **Colaborador** (Staff).
+  * O role do próprio Owner não pode ser alterado.
 
 ## 6. Interface Visual e Google Calendar
 * **Objetivo:** Facilitar a rápida identificação visual dos agendamentos no painel PWA.

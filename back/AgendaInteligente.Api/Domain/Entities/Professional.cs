@@ -31,8 +31,21 @@ public sealed class Professional : IMustHaveTenant
     /// <summary>Senha armazenada como hash (bcrypt ou similar). Nunca em plain-text.</summary>
     public required string PasswordHash { get; set; }
 
-    /// <summary>Define o papel do profissional: Owner (dono) ou Staff (colaborador).</summary>
+    /// <summary>Define o papel do profissional: Owner (dono), Staff (colaborador) ou Receptionist (recepcionista).</summary>
     public ProfessionalRole Role { get; set; } = ProfessionalRole.Staff;
+
+    /// <summary>
+    /// Permissão extra: permite que um Receptionist gerencie o catálogo de serviços (criar, editar, excluir).
+    /// Ignorado para Owner (sempre tem acesso) e Staff (nunca tem acesso).
+    /// </summary>
+    public bool CanManageServices { get; set; } = false;
+
+    /// <summary>
+    /// Horários de trabalho individuais deste profissional em JSON (mesmo formato de TenantSettings.WorkingHoursJson).
+    /// Quando preenchido, prevalece sobre os horários gerais do tenant no cálculo de slots disponíveis.
+    /// Quando null, herda os horários do estabelecimento.
+    /// </summary>
+    public string? WorkingHoursJson { get; set; }
 
     /// <summary>Cor exibida no calendário do PWA (formato hex, ex: "#4285F4").</summary>
     public string? CalendarColor { get; set; }

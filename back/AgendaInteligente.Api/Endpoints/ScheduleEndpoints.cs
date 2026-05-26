@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using AgendaInteligente.Api.Contracts.Requests;
 using AgendaInteligente.Api.Contracts.Responses;
 using AgendaInteligente.Api.Domain.Enums;
@@ -21,15 +22,15 @@ public static class ScheduleEndpoints
             [FromQuery] Guid? professionalId,
             IScheduleService service, CancellationToken ct) =>
         {
-            var fromDate = from ?? DateTime.UtcNow.Date;
-            var toDate = to ?? fromDate.AddDays(7);
+            var fromDate = DateTime.SpecifyKind(from ?? DateTime.UtcNow.Date, DateTimeKind.Utc);
+            var toDate   = DateTime.SpecifyKind(to   ?? fromDate.AddDays(7), DateTimeKind.Utc);
 
             var schedules = professionalId.HasValue
                 ? await service.GetByProfessionalAsync(professionalId.Value, fromDate, toDate, ct)
                 : await service.GetByDateRangeAsync(fromDate, toDate, ct);
 
             var response = schedules.Select(s => new ScheduleResponse(
-                s.Id, s.CustomerId!.Value, s.ProfessionalId, s.ServiceId!.Value,
+                s.Id, s.CustomerId!.Value, s.Customer?.Name, s.ProfessionalId, s.ServiceId!.Value,
                 s.StartDateTime, s.EndDateTime, s.Status, s.Notes, s.CreatedAt));
 
             return Results.Ok(response);
@@ -42,7 +43,7 @@ public static class ScheduleEndpoints
                 return Results.NotFound();
 
             var response = new ScheduleResponse(
-                schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
+                schedule.Id, schedule.CustomerId!.Value, schedule.Customer?.Name, schedule.ProfessionalId, schedule.ServiceId!.Value,
                 schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
 
             return Results.Ok(response);
@@ -57,7 +58,7 @@ public static class ScheduleEndpoints
                     request.StartDateTime, request.Notes, ct: ct);
 
                 var response = new ScheduleResponse(
-                    schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
+                    schedule.Id, schedule.CustomerId!.Value, schedule.Customer?.Name, schedule.ProfessionalId, schedule.ServiceId!.Value,
                     schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
 
                 return Results.Created($"/api/v1/schedules/{schedule.Id}", response);
@@ -90,7 +91,7 @@ public static class ScheduleEndpoints
                     id, request.StartDateTime, request.Notes, ct);
 
                 var response = new ScheduleResponse(
-                    schedule.Id, schedule.CustomerId!.Value, schedule.ProfessionalId, schedule.ServiceId!.Value,
+                    schedule.Id, schedule.CustomerId!.Value, schedule.Customer?.Name, schedule.ProfessionalId, schedule.ServiceId!.Value,
                     schedule.StartDateTime, schedule.EndDateTime, schedule.Status, schedule.Notes, schedule.CreatedAt);
 
                 if (!string.IsNullOrWhiteSpace(schedule.Customer?.PhoneNumber))
@@ -173,10 +174,10 @@ public static class ScheduleEndpoints
             {
                 var created = await service.CreateRecurringAsync(
                     request.CustomerId, request.ProfessionalId, request.ServiceId,
-                    request.StartDateTime, request.RepeatWeeklyCount, request.Notes, ct);
+                    request.StartDateTime, request.RepeatType, request.RepeatCount, request.Notes, ct);
 
                 var response = created.Select(s => new ScheduleResponse(
-                    s.Id, s.CustomerId!.Value, s.ProfessionalId, s.ServiceId!.Value,
+                    s.Id, s.CustomerId!.Value, s.Customer?.Name, s.ProfessionalId, s.ServiceId!.Value,
                     s.StartDateTime, s.EndDateTime, s.Status, s.Notes, s.CreatedAt));
 
                 return Results.Ok(response);
@@ -188,6 +189,10 @@ public static class ScheduleEndpoints
                     error              = ex.Message,
                     conflictingDates   = ex.SuggestedAlternatives
                 });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
@@ -228,8 +233,8 @@ public static class ScheduleEndpoints
             [FromQuery] Guid professionalId,
             IScheduleService service, CancellationToken ct) =>
         {
-            var fromDate = from ?? DateTime.UtcNow.Date;
-            var toDate = to ?? fromDate.AddDays(7);
+            var fromDate = DateTime.SpecifyKind(from ?? DateTime.UtcNow.Date, DateTimeKind.Utc);
+            var toDate   = DateTime.SpecifyKind(to   ?? fromDate.AddDays(7), DateTimeKind.Utc);
 
             var blockouts = await service.GetBlockoutsByProfessionalAsync(professionalId, fromDate, toDate, ct);
             var response = blockouts.Select(b => new BlockoutResponse(
@@ -239,12 +244,27 @@ public static class ScheduleEndpoints
             return Results.Ok(response);
         });
 
-        blockGroup.MapPost("/", async ([FromBody] CreateBlockoutRequest request, IScheduleService service, CancellationToken ct) =>
+        blockGroup.MapPost("/", async (
+            [FromBody] CreateBlockoutRequest request,
+            IScheduleService service,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
         {
+            var isOwner = user.HasClaim("role", "Owner");
+            var effectiveProfessionalId = request.ProfessionalId;
+
+            if (!isOwner)
+            {
+                var idStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!Guid.TryParse(idStr, out var staffId))
+                    return Results.Forbid();
+                effectiveProfessionalId = staffId;
+            }
+
             try
             {
                 var blockout = await service.CreateBlockoutAsync(
-                    request.ProfessionalId, request.StartDateTime, request.EndDateTime,
+                    effectiveProfessionalId, request.StartDateTime, request.EndDateTime,
                     request.BlockReason, request.IsAllDay, ct);
 
                 var response = new BlockoutResponse(
@@ -261,7 +281,7 @@ public static class ScheduleEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
-        }).RequireAuthorization("RequireOwnerRole");
+        });
 
         blockGroup.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateBlockoutRequest request, IScheduleService service, CancellationToken ct) =>
         {
@@ -287,11 +307,28 @@ public static class ScheduleEndpoints
             }
         }).RequireAuthorization("RequireOwnerRole");
 
-        blockGroup.MapDelete("/{id:guid}", async (Guid id, IScheduleService service, CancellationToken ct) =>
+        blockGroup.MapDelete("/{id:guid}", async (
+            Guid id,
+            IScheduleService service,
+            ClaimsPrincipal user,
+            CancellationToken ct) =>
         {
+            if (!user.HasClaim("role", "Owner"))
+            {
+                var idStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!Guid.TryParse(idStr, out var staffId))
+                    return Results.Forbid();
+
+                var from = DateTime.SpecifyKind(DateTime.UtcNow.AddYears(-2), DateTimeKind.Utc);
+                var to   = DateTime.SpecifyKind(DateTime.UtcNow.AddYears(2),  DateTimeKind.Utc);
+                var mine = await service.GetBlockoutsByProfessionalAsync(staffId, from, to, ct);
+                if (!mine.Any(b => b.Id == id))
+                    return Results.Forbid();
+            }
+
             var success = await service.DeleteAsync(id, ct);
             return success ? Results.NoContent() : Results.NotFound();
-        }).RequireAuthorization("RequireOwnerRole");
+        });
     }
 
     // ── B26 handler ──────────────────────────────────────────────────────────────

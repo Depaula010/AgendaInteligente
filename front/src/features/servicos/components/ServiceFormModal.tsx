@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Modal } from '@/shared/components/ui/Modal'
 import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
+import { CurrencyInput } from '@/shared/components/ui/CurrencyInput'
 import { appToast } from '@/shared/lib/toast'
 import { servicosService } from '@/features/servicos/services/servicos.service'
 import type { ServiceCatalogResponse } from '@/features/agenda/types/agenda.types'
@@ -103,14 +104,11 @@ export function ServiceFormModal({ service, onClose }: ServiceFormModalProps) {
             placeholder="30"
             error={errors.durationMinutes?.message}
           />
-          <Input
-            {...register('price', { valueAsNumber: true })}
+          <CurrencyInput
             id="price"
-            type="number"
-            min={0}
-            step={0.01}
             label="Preço (R$)"
-            placeholder="0,00"
+            value={watch('price')}
+            onChange={(v) => setValue('price', v, { shouldValidate: true })}
             error={errors.price?.message}
           />
         </div>

@@ -27,21 +27,24 @@ public sealed class ProfessionalService : IProfessionalService
         => _repo.GetByIdAsync(id, ct);
 
     public async Task<Professional> CreateAsync(
-        string name, string email, string passwordHash,
-        string? calendarColor = null, CancellationToken ct = default)
+        string name, string email, string password,
+        string? calendarColor = null,
+        ProfessionalRole? role = null,
+        bool canManageServices = false,
+        CancellationToken ct = default)
     {
-        // Verifica e-mail duplicado dentro do mesmo Tenant
         var existing = await _repo.GetByEmailAsync(email, ct);
         if (existing is not null)
             throw new InvalidOperationException($"Já existe um profissional com o e-mail '{email}' neste estabelecimento.");
 
         var professional = new Professional
         {
-            Name          = name,
-            Email         = email,
-            PasswordHash  = passwordHash,
-            CalendarColor = calendarColor,
-            Role          = ProfessionalRole.Staff
+            Name              = name,
+            Email             = email,
+            PasswordHash      = BCrypt.Net.BCrypt.HashPassword(password),
+            CalendarColor     = calendarColor,
+            Role              = role ?? ProfessionalRole.Staff,
+            CanManageServices = canManageServices
         };
 
         _logger.LogInformation("Criando profissional '{Name}' ({Email})", name, email);
@@ -50,6 +53,8 @@ public sealed class ProfessionalService : IProfessionalService
 
     public async Task<Professional> UpdateAsync(
         Guid id, string name, string? calendarColor, bool isActive,
+        ProfessionalRole? role = null,
+        bool? canManageServices = null,
         CancellationToken ct = default)
     {
         var professional = await _repo.GetByIdAsync(id, ct)
@@ -58,6 +63,11 @@ public sealed class ProfessionalService : IProfessionalService
         professional.Name          = name;
         professional.CalendarColor = calendarColor;
         professional.IsActive      = isActive;
+
+        if (role.HasValue)
+            professional.Role = role.Value;
+        if (canManageServices.HasValue)
+            professional.CanManageServices = canManageServices.Value;
 
         await _repo.UpdateAsync(professional, ct);
         _logger.LogInformation("Profissional '{Id}' atualizado.", id);
@@ -68,5 +78,18 @@ public sealed class ProfessionalService : IProfessionalService
     {
         _logger.LogInformation("Desativando profissional '{Id}'.", id);
         return _repo.DeleteAsync(id, ct);
+    }
+
+    public async Task<Professional> UpdateWorkingHoursAsync(
+        Guid id, string? workingHoursJson, CancellationToken ct = default)
+    {
+        var professional = await _repo.GetByIdAsync(id, ct)
+            ?? throw new KeyNotFoundException($"Profissional '{id}' não encontrado.");
+
+        professional.WorkingHoursJson = workingHoursJson;
+
+        await _repo.UpdateAsync(professional, ct);
+        _logger.LogInformation("Horários individuais do profissional '{Id}' atualizados.", id);
+        return professional;
     }
 }

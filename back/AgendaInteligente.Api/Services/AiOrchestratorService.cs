@@ -57,17 +57,9 @@ public sealed class AiOrchestratorService : IAiOrchestratorService
         var professionals = await _professionalRepository.GetAllActiveByTenantAsync(tenantId);
         var professionalNames = professionals.Select(p => p.Name).ToList();
 
-        // Data atual no fuso de Brasília para o AI resolver referências relativas ("amanhã", "hoje")
-        DateTime hoje;
-        try
-        {
-            var tzId = OperatingSystem.IsWindows() ? "E. South America Standard Time" : "America/Sao_Paulo";
-            hoje = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(tzId));
-        }
-        catch
-        {
-            hoje = DateTime.UtcNow.AddHours(-3);
-        }
+        // Data atual no fuso do tenant para o AI resolver referências relativas ("amanhã", "hoje")
+        var tz   = TenantTimeZoneHelper.GetTimeZone(settings);
+        var hoje = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
 
         // Montagem do Contexto Dinâmico
         var sb = new StringBuilder();
@@ -75,7 +67,7 @@ public sealed class AiOrchestratorService : IAiOrchestratorService
         sb.AppendLine("Sua função é conversar com o cliente de forma educada, curta (estilo WhatsApp) e objetiva, extraindo a sua intenção de agendamento.");
         sb.AppendLine();
         sb.AppendLine("### DATA E HORA ATUAL");
-        sb.AppendLine($"- Hoje é {hoje:dddd, dd/MM/yyyy} (horário de Brasília).");
+        sb.AppendLine($"- Hoje é {hoje:dddd, dd/MM/yyyy} (horário local do estabelecimento).");
         sb.AppendLine("- Use esta data como referência para resolver expressões como 'hoje', 'amanhã', 'próxima semana', 'segunda-feira', etc.");
         sb.AppendLine("- Sempre retorne o campo 'date' no formato YYYY-MM-DD. Nunca deixe 'date' nulo se o cliente mencionou uma data relativa.");
         sb.AppendLine();

@@ -20,16 +20,20 @@ const PRESET_COLORS = [
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  name:          z.string().min(1, 'Informe o nome'),
-  email:         z.string().email('E-mail inválido'),
-  password:      z.string().min(6, 'Mínimo 6 caracteres'),
-  calendarColor: z.string().optional(),
+  name:              z.string().min(1, 'Informe o nome'),
+  email:             z.string().email('E-mail inválido'),
+  password:          z.string().min(6, 'Mínimo 6 caracteres'),
+  calendarColor:     z.string().optional(),
+  role:              z.enum(['Staff', 'Receptionist']),
+  canManageServices: z.boolean(),
 })
 
 const editSchema = z.object({
-  name:          z.string().min(1, 'Informe o nome'),
-  calendarColor: z.string().optional(),
-  isActive:      z.boolean(),
+  name:              z.string().min(1, 'Informe o nome'),
+  calendarColor:     z.string().optional(),
+  isActive:          z.boolean(),
+  role:              z.enum(['Staff', 'Receptionist']).optional(),
+  canManageServices: z.boolean().optional(),
 })
 
 type CreateValues = z.infer<typeof createSchema>
@@ -52,10 +56,12 @@ export function ProfessionalFormModal({ professional, onClose }: ProfessionalFor
   const createForm = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
     defaultValues: {
-      name:          '',
-      email:         '',
-      password:      '',
-      calendarColor: PRESET_COLORS[0],
+      name:              '',
+      email:             '',
+      password:          '',
+      calendarColor:     PRESET_COLORS[0],
+      role:              'Staff',
+      canManageServices: false,
     },
   })
 
@@ -63,16 +69,20 @@ export function ProfessionalFormModal({ professional, onClose }: ProfessionalFor
   const editForm = useForm<EditValues>({
     resolver: zodResolver(editSchema),
     defaultValues: {
-      name:          professional?.name ?? '',
-      calendarColor: professional?.calendarColor ?? PRESET_COLORS[0],
-      isActive:      professional?.isActive ?? true,
+      name:              professional?.name ?? '',
+      calendarColor:     professional?.calendarColor ?? PRESET_COLORS[0],
+      isActive:          professional?.isActive ?? true,
+      role:              (professional?.role === 'Owner' ? undefined : professional?.role) ?? 'Staff',
+      canManageServices: professional?.canManageServices ?? false,
     },
   })
 
   // Watch helpers — always call hooks before any conditional
-  const createColor   = createForm.watch('calendarColor') ?? PRESET_COLORS[0]
-  const editColor     = editForm.watch('calendarColor')   ?? PRESET_COLORS[0]
-  const editIsActive  = editForm.watch('isActive')
+  const createColor             = createForm.watch('calendarColor') ?? PRESET_COLORS[0]
+  const createRole              = createForm.watch('role')
+  const editColor               = editForm.watch('calendarColor') ?? PRESET_COLORS[0]
+  const editIsActive            = editForm.watch('isActive')
+  const editRole                = editForm.watch('role')
 
   const selectedColor = isEdit ? editColor : createColor
 
@@ -125,6 +135,80 @@ export function ProfessionalFormModal({ professional, onClose }: ProfessionalFor
     )
   }
 
+  // ── Role + permissions section (shared) ──
+  function RoleSection({
+    currentRole,
+    canManage,
+    onRoleChange,
+    onCanManageChange,
+    isOwnerProfessional = false,
+  }: {
+    currentRole: 'Staff' | 'Receptionist' | undefined
+    canManage: boolean | undefined
+    onRoleChange: (role: 'Staff' | 'Receptionist') => void
+    onCanManageChange: (v: boolean) => void
+    isOwnerProfessional?: boolean
+  }) {
+    if (isOwnerProfessional) {
+      return (
+        <div className="flex items-center justify-between py-0.5">
+          <span className="text-sm font-medium text-slate-300">Perfil</span>
+          <Badge variant="warning">Proprietário</Badge>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex flex-col gap-3">
+        {/* Role select */}
+        <div className="flex items-center justify-between py-0.5">
+          <span className="text-sm font-medium text-slate-300">Perfil</span>
+          <div className="flex gap-1.5">
+            {(['Staff', 'Receptionist'] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => onRoleChange(r)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  currentRole === r
+                    ? 'bg-brand-500/20 text-brand-400 border border-brand-500/40'
+                    : 'bg-surface-700 text-slate-400 border border-white/10 hover:text-slate-300'
+                }`}
+              >
+                {r === 'Staff' ? 'Barbeiro' : 'Recepcionista'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* canManageServices checkbox — only when Receptionist */}
+        {currentRole === 'Receptionist' && (
+          <button
+            type="button"
+            onClick={() => onCanManageChange(!canManage)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-left hover:bg-white/8 transition-colors"
+          >
+            <div className={`h-4 w-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+              canManage
+                ? 'bg-brand-500 border-brand-500'
+                : 'bg-transparent border-slate-500'
+            }`}>
+              {canManage && (
+                <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </div>
+            <div>
+              <p className="text-sm text-slate-300 font-medium">Gerenciar catálogo de serviços</p>
+              <p className="text-xs text-slate-500 mt-0.5">Criar, editar e excluir serviços</p>
+            </div>
+          </button>
+        )}
+      </div>
+    )
+  }
+
   // ── Edit form render ──
   if (isEdit) {
     const { register, handleSubmit, setValue, formState: { errors } } = editForm
@@ -144,13 +228,17 @@ export function ProfessionalFormModal({ professional, onClose }: ProfessionalFor
             </div>
           </div>
 
-          {/* Role badge */}
-          <div className="flex items-center justify-between py-0.5">
-            <span className="text-sm font-medium text-slate-300">Perfil</span>
-            <Badge variant={professional.role === 'Owner' ? 'warning' : 'info'}>
-              {professional.role === 'Owner' ? 'Proprietário' : 'Colaborador'}
-            </Badge>
-          </div>
+          {/* Role section */}
+          <RoleSection
+            currentRole={editRole as 'Staff' | 'Receptionist' | undefined}
+            canManage={editForm.watch('canManageServices')}
+            onRoleChange={(r) => {
+              setValue('role', r)
+              if (r === 'Staff') setValue('canManageServices', false)
+            }}
+            onCanManageChange={(v) => setValue('canManageServices', v)}
+            isOwnerProfessional={professional.role === 'Owner'}
+          />
 
           {/* Name */}
           <Input
@@ -229,6 +317,17 @@ export function ProfessionalFormModal({ professional, onClose }: ProfessionalFor
           label="Senha"
           placeholder="Mínimo 6 caracteres"
           error={errors.password?.message}
+        />
+
+        {/* Role section */}
+        <RoleSection
+          currentRole={createRole}
+          canManage={createForm.watch('canManageServices')}
+          onRoleChange={(r) => {
+            setValue('role', r)
+            if (r === 'Staff') setValue('canManageServices', false)
+          }}
+          onCanManageChange={(v) => setValue('canManageServices', v)}
         />
 
         <ColorPicker setValue={(c) => setValue('calendarColor', c)} />

@@ -13,6 +13,7 @@ import {
   type ScheduleStatusValue,
   type ServiceCatalogResponse,
 } from '@/features/agenda/types/agenda.types'
+import { fmtDateTime, fmtTime } from '@/shared/utils/date'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -30,21 +31,6 @@ const STATUS_VARIANT: Record<number, 'default' | 'warning' | 'success' | 'danger
   [ScheduleStatus.Cancelled]: 'danger',
   [ScheduleStatus.Completed]: 'info',
   [ScheduleStatus.NoShow]: 'default',
-}
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  })
-}
-
-function fmtDateOnly(iso: string) {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
 }
 
 function toDateInputValue(iso: string): string {
@@ -174,7 +160,7 @@ export function EventDetailModal({ schedule, professional, service, onClose }: E
           <div className="flex items-center gap-3 text-sm">
             <Clock className="h-4 w-4 text-slate-500 flex-shrink-0" aria-hidden="true" />
             <span className="text-slate-300">
-              {fmtDate(schedule.startDateTime)} → {fmtDateOnly(schedule.endDateTime)}
+              {fmtDateTime(schedule.startDateTime)} → {fmtTime(schedule.endDateTime)}
             </span>
           </div>
 
@@ -215,11 +201,7 @@ export function EventDetailModal({ schedule, professional, service, onClose }: E
             {!loadingSlots && slotsData && slotsData.slots.length > 0 && (
               <div className="grid grid-cols-3 gap-2">
                 {slotsData.slots.map((slot) => {
-                  const label = new Date(slot).toLocaleTimeString('pt-BR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    timeZone: 'UTC',
-                  })
+                  const label = fmtTime(slot)
                   const isSelected = slot === selectedSlot
                   return (
                     <button

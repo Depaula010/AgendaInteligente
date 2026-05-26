@@ -29,9 +29,10 @@ export interface AuthResponse {
 export interface JwtClaims {
   sub: string
   email: string
-  tenantId: string
-  role: 'Owner' | 'Staff'
   name: string
+  tenantId: string
+  role: 'Owner' | 'Receptionist' | 'Staff'
+  can_manage_services: string
   exp: number
   iat: number
 }
@@ -41,5 +42,6 @@ export interface AuthUser {
   email: string
   name: string
   tenantId: string
-  role: 'Owner' | 'Staff'
+  role: 'Owner' | 'Receptionist' | 'Staff'
+  canManageServices: boolean
 }

@@ -113,8 +113,10 @@ export function Modal({
       <div
         ref={panelRef}
         className={cn(
-          // Mobile: ocupa toda a parte inferior (sheet)
+          // Mobile: bottom sheet que cresce até 90% da tela
           'relative w-full rounded-t-3xl sm:rounded-2xl',
+          'flex flex-col',
+          'max-h-[90dvh] sm:max-h-[90vh]',
           // Desktop: largura limitada
           'sm:w-full',
           sizeStyles[size],
@@ -122,8 +124,8 @@ export function Modal({
           'animate-slide-up',
         )}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between p-5 pb-3">
+        {/* Header — fixo, não rola */}
+        <div className="flex items-start justify-between p-5 pb-3 flex-shrink-0">
           <div className="flex-1 pr-4">
             <h2
               id="modal-title"
@@ -148,10 +150,12 @@ export function Modal({
         </div>
 
         {/* Separador */}
-        <div className="h-px bg-white/10 mx-5" />
+        <div className="h-px bg-white/10 mx-5 flex-shrink-0" />
 
-        {/* Conteúdo */}
-        <div className="p-5">{children}</div>
+        {/* Conteúdo — rola quando necessário */}
+        <div className="flex-1 overflow-y-auto overscroll-contain p-5">
+          {children}
+        </div>
       </div>
     </div>,
     document.body,

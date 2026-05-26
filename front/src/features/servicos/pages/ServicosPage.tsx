@@ -132,8 +132,9 @@ function ServiceCard({
 // ── ServicosPage ───────────────────────────────────────────────────────────────
 
 export function ServicosPage() {
-  const role = useAuthStore((s) => s.user?.role)
-  const isOwner = role === 'Owner'
+  const canEdit = useAuthStore(
+    (s) => s.user?.role === 'Owner' || (s.user?.canManageServices ?? false),
+  )
 
   const [formTarget, setFormTarget] = useState<ServiceCatalogResponse | null | 'new'>(null)
   const [deleteTarget, setDeleteTarget] = useState<ServiceCatalogResponse | null>(null)
@@ -158,13 +159,13 @@ export function ServicosPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isOwner && (
+          {canEdit && (
             <Button size="sm" onClick={() => setFormTarget('new')}>
               <Plus className="h-4 w-4 mr-1" />
               Novo serviço
             </Button>
           )}
-          {!isOwner && (
+          {!canEdit && (
             <div className="h-9 w-9 rounded-xl bg-brand-500/10 flex items-center justify-center">
               <Scissors className="h-5 w-5 text-brand-400" aria-hidden="true" />
             </div>
@@ -183,7 +184,7 @@ export function ServicosPage() {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Scissors className="h-10 w-10 text-slate-700 mb-3" aria-hidden="true" />
           <p className="text-white font-medium">Nenhum serviço cadastrado</p>
-          {isOwner && (
+          {canEdit && (
             <p className="text-sm text-slate-500 mt-1">
               Clique em "Novo serviço" para adicionar o primeiro.
             </p>
@@ -195,7 +196,7 @@ export function ServicosPage() {
             <ServiceCard
               key={service.id}
               service={service}
-              isOwner={isOwner}
+              isOwner={canEdit}
               onEdit={() => setFormTarget(service)}
               onDelete={() => setDeleteTarget(service)}
             />

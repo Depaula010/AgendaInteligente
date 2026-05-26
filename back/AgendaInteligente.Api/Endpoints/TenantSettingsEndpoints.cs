@@ -12,7 +12,7 @@ public static class TenantSettingsEndpoints
     {
         var group = app.MapGroup("/api/v1/tenant-settings")
             .WithTags("Tenant Settings")
-            .RequireAuthorization("RequireOwnerRole");
+            .RequireAuthorization();
 
         group.MapGet("/", async (ITenantSettingsService service, CancellationToken ct) =>
         {
@@ -95,6 +95,6 @@ public static class TenantSettingsEndpoints
                 TimeZoneId: settings.TimeZoneId);
 
             return Results.Ok(response);
-        });
+        }).RequireAuthorization("RequireOwnerRole");
     }
 }

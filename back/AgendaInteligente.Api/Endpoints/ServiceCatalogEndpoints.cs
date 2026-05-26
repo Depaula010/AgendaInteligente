@@ -54,7 +54,7 @@ public static class ServiceCatalogEndpoints
                 return Results.BadRequest(new { error = ex.Message });
             }
         })
-        .RequireAuthorization("RequireOwnerRole");
+        .RequireAuthorization("RequireServiceManagementAccess");
 
         group.MapPut("/{id:guid}", async (Guid id, [FromBody] UpdateServiceCatalogRequest request, IServiceCatalogService service, CancellationToken ct) =>
         {
@@ -79,13 +79,13 @@ public static class ServiceCatalogEndpoints
                 return Results.BadRequest(new { error = ex.Message });
             }
         })
-        .RequireAuthorization("RequireOwnerRole");
+        .RequireAuthorization("RequireServiceManagementAccess");
 
         group.MapDelete("/{id:guid}", async (Guid id, IServiceCatalogService service, CancellationToken ct) =>
         {
             var success = await service.DeleteAsync(id, ct);
             return success ? Results.NoContent() : Results.NotFound();
         })
-        .RequireAuthorization("RequireOwnerRole");
+        .RequireAuthorization("RequireServiceManagementAccess");
     }
 }

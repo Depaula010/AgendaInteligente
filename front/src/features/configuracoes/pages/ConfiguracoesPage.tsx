@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bot, BrainCircuit, Clock, Globe, Info, Lock, Settings, X } from 'lucide-react'
+import { Bot, BrainCircuit, CalendarX, Clock, Globe, Info, Settings, X } from 'lucide-react'
 import { Button } from '@/shared/components/ui/Button'
 import { Input } from '@/shared/components/ui/Input'
 import { Select } from '@/shared/components/ui/Select'
@@ -13,6 +13,17 @@ import { useAuthStore } from '@/features/auth/store/authStore'
 import { configuracoesService } from '@/features/configuracoes/services/configuracoes.service'
 import type { WorkingHourEntry, SaveTenantSettingsRequest } from '@/features/configuracoes/types/configuracoes.types'
 import { BRAZIL_TIMEZONES } from '@/features/configuracoes/types/configuracoes.types'
+import { api } from '@/shared/lib/axios'
+
+interface BlockoutResponse {
+  id: string
+  professionalId: string
+  startDateTime: string
+  endDateTime: string
+  blockReason: string | null
+  isAllDay: boolean
+  createdAt: string
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +53,7 @@ interface DayConfig {
 
 const DEFAULT_DAYS: DayConfig[] = Array.from({ length: 7 }, () => ({
   enabled: false,
-  openTime: '09:00',
+  openTime: '08:00',
   closeTime: '18:00',
 }))
 
@@ -72,8 +83,55 @@ function SectionCard({
 
 export function ConfiguracoesPage() {
   const role    = useAuthStore((s) => s.user?.role)
+  const userId  = useAuthStore((s) => s.user?.id)
   const isOwner = role === 'Owner'
   const queryClient = useQueryClient()
+
+  // ── Staff: meus bloqueios ──
+  const [newBlockoutDate,   setNewBlockoutDate]   = useState('')
+  const [newBlockoutReason, setNewBlockoutReason] = useState('')
+
+  const { data: myBlockouts = [], refetch: refetchBlockouts } = useQuery({
+    queryKey: ['my-blockouts', userId],
+    queryFn: async () => {
+      if (!userId) return []
+      const from = new Date().toISOString()
+      const to   = new Date(new Date().setFullYear(new Date().getFullYear() + 2)).toISOString()
+      const res  = await api.get<BlockoutResponse[]>('/schedules/block', {
+        params: { professionalId: userId, from, to },
+      })
+      return res.data
+    },
+    enabled: !isOwner && !!userId,
+  })
+
+  const createBlockoutMutation = useMutation({
+    mutationFn: async (date: string) => {
+      await api.post('/schedules/block', {
+        professionalId: userId,
+        startDateTime: `${date}T00:00:00.000Z`,
+        endDateTime:   `${date}T23:59:59.000Z`,
+        blockReason:   newBlockoutReason || null,
+        isAllDay:      true,
+      })
+    },
+    onSuccess: () => {
+      refetchBlockouts()
+      setNewBlockoutDate('')
+      setNewBlockoutReason('')
+      appToast.success('Bloqueio adicionado.')
+    },
+    onError: (err: unknown) => appToast.error(appToast.apiError(err, 'Erro ao adicionar bloqueio.')),
+  })
+
+  const deleteBlockoutMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/schedules/block/${id}`),
+    onSuccess: () => {
+      refetchBlockouts()
+      appToast.success('Bloqueio removido.')
+    },
+    onError: (err: unknown) => appToast.error(appToast.apiError(err, 'Erro ao remover bloqueio.')),
+  })
 
   // ── Array state (outside RHF) ──
   const [days, setDays]       = useState<DayConfig[]>(DEFAULT_DAYS)
@@ -142,6 +200,63 @@ export function ConfiguracoesPage() {
       timeZoneId:               settings.timeZoneId  || 'America/Sao_Paulo',
     })
   }, [settings, reset])
+
+  // ── Staff: meus horários individuais (declared after settings to avoid TDZ) ──
+  const [staffDays, setStaffDays] = useState<DayConfig[]>(DEFAULT_DAYS)
+
+  const { data: myProfessional } = useQuery({
+    queryKey: ['my-professional', userId],
+    queryFn: async () => {
+      const res = await api.get<{ workingHoursJson: string | null }>(`/professionals/${userId}`)
+      return res.data
+    },
+    enabled: !isOwner && !!userId,
+  })
+
+  useEffect(() => {
+    if (isOwner) return
+    const json = myProfessional?.workingHoursJson ?? settings?.workingHoursJson
+    if (!json) return
+    try {
+      const parsed = JSON.parse(json) as WorkingHourEntry[]
+      setStaffDays(
+        Array.from({ length: 7 }, (_, i) => {
+          const entry = parsed.find((e) => e.dayOfWeek === i)
+          return {
+            enabled:   !!entry,
+            openTime:  entry?.openTime  ?? '08:00',
+            closeTime: entry?.closeTime ?? '18:00',
+          }
+        }),
+      )
+    } catch {
+      setStaffDays(DEFAULT_DAYS)
+    }
+  }, [myProfessional?.workingHoursJson, settings?.workingHoursJson, isOwner])
+
+  const saveWorkingHoursMutation = useMutation({
+    mutationFn: async (workingHoursJson: string | null) => {
+      await api.put(`/professionals/${userId}/working-hours`, { workingHoursJson })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-professional', userId] })
+      appToast.success('Horários salvos.')
+    },
+    onError: (err: unknown) => appToast.error(appToast.apiError(err, 'Erro ao salvar horários.')),
+  })
+
+  function saveStaffWorkingHours() {
+    const workingHoursJson = JSON.stringify(
+      staffDays
+        .map((d, i) => d.enabled ? { dayOfWeek: i, openTime: d.openTime, closeTime: d.closeTime } : null)
+        .filter(Boolean),
+    )
+    saveWorkingHoursMutation.mutate(workingHoursJson)
+  }
+
+  function resetStaffWorkingHours() {
+    saveWorkingHoursMutation.mutate(null)
+  }
 
   // ── Mutation ──
   const mutation = useMutation({
@@ -228,6 +343,179 @@ export function ConfiguracoesPage() {
     )
   }
 
+  // ── View do Colaborador ──────────────────────────────────────────────────────
+  if (!isOwner) {
+    return (
+      <div className="p-4 md:p-6 max-w-2xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="font-display text-xl font-bold text-white">Configurações</h1>
+            <p className="text-sm text-slate-500 mt-1">Horário de funcionamento e seus bloqueios de agenda.</p>
+          </div>
+          <div className="h-9 w-9 rounded-xl bg-brand-500/10 flex items-center justify-center">
+            <Settings className="h-5 w-5 text-brand-400" aria-hidden="true" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          {/* Meus horários de trabalho — editável */}
+          <SectionCard icon={Clock} title="Meus horários de trabalho">
+            <div className="flex items-center justify-between mb-3">
+              {myProfessional?.workingHoursJson != null ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-500/15 border border-brand-500/30 px-2.5 py-0.5 text-xs text-brand-300">
+                  Personalizado
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-2.5 py-0.5 text-xs text-slate-400">
+                  Usando horário do estabelecimento
+                </span>
+              )}
+              {myProfessional?.workingHoursJson != null && (
+                <button
+                  type="button"
+                  onClick={resetStaffWorkingHours}
+                  disabled={saveWorkingHoursMutation.isPending}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-40"
+                >
+                  Usar horário do estabelecimento
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {staffDays.map((day, i) => (
+                <div
+                  key={i}
+                  className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl px-3 py-2.5 transition-colors ${
+                    day.enabled ? 'bg-white/5' : 'opacity-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id={`staff-day-${i}`}
+                      checked={day.enabled}
+                      onChange={(e) =>
+                        setStaffDays((prev) =>
+                          prev.map((d, idx) => idx === i ? { ...d, enabled: e.target.checked } : d),
+                        )
+                      }
+                      className="h-4 w-4 rounded accent-brand-500 flex-shrink-0 cursor-pointer"
+                    />
+                    <label
+                      htmlFor={`staff-day-${i}`}
+                      className="w-20 text-sm font-medium text-slate-300 cursor-pointer select-none"
+                    >
+                      {DAY_NAMES[i]}
+                    </label>
+                  </div>
+
+                  {day.enabled && (
+                    <div className="flex items-center gap-2 pl-7 sm:pl-0 sm:flex-1">
+                      <input
+                        type="time"
+                        value={day.openTime}
+                        onChange={(e) =>
+                          setStaffDays((prev) =>
+                            prev.map((d, idx) => idx === i ? { ...d, openTime: e.target.value } : d),
+                          )
+                        }
+                        className="field-base py-1.5 text-sm w-[7rem]"
+                      />
+                      <span className="text-xs text-slate-500">às</span>
+                      <input
+                        type="time"
+                        value={day.closeTime}
+                        onChange={(e) =>
+                          setStaffDays((prev) =>
+                            prev.map((d, idx) => idx === i ? { ...d, closeTime: e.target.value } : d),
+                          )
+                        }
+                        className="field-base py-1.5 text-sm w-[7rem]"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              <Button
+                type="button"
+                size="sm"
+                onClick={saveStaffWorkingHours}
+                isLoading={saveWorkingHoursMutation.isPending}
+                className="w-full sm:w-auto"
+              >
+                Salvar horários
+              </Button>
+            </div>
+          </SectionCard>
+
+          {/* Meus bloqueios de agenda */}
+          <SectionCard icon={CalendarX} title="Meus bloqueios de agenda">
+            <div className="flex gap-2 mb-3 flex-col sm:flex-row">
+              <input
+                type="date"
+                value={newBlockoutDate}
+                onChange={(e) => setNewBlockoutDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="field-base flex-1 text-sm"
+                aria-label="Data do bloqueio"
+              />
+              <input
+                type="text"
+                value={newBlockoutReason}
+                onChange={(e) => setNewBlockoutReason(e.target.value)}
+                placeholder="Motivo (opcional)"
+                className="field-base flex-1 text-sm"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => newBlockoutDate && createBlockoutMutation.mutate(newBlockoutDate)}
+                disabled={!newBlockoutDate || createBlockoutMutation.isPending}
+                isLoading={createBlockoutMutation.isPending}
+              >
+                Adicionar
+              </Button>
+            </div>
+
+            {myBlockouts.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-3">Nenhum bloqueio cadastrado.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {myBlockouts.map((b) => {
+                  const [y, m, d] = b.startDateTime.split('T')[0].split('-')
+                  const label = b.blockReason ? `${d}/${m}/${y} — ${b.blockReason}` : `${d}/${m}/${y}`
+                  return (
+                    <span
+                      key={b.id}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-3 py-1 text-sm text-slate-300"
+                    >
+                      {label}
+                      <button
+                        type="button"
+                        onClick={() => deleteBlockoutMutation.mutate(b.id)}
+                        disabled={deleteBlockoutMutation.isPending}
+                        className="text-slate-500 hover:text-red-400 transition-colors focus-visible:outline-none disabled:opacity-40"
+                        aria-label={`Remover bloqueio ${label}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+          </SectionCard>
+        </div>
+      </div>
+    )
+  }
+
+  // ── View do Proprietário ─────────────────────────────────────────────────────
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
       {/* Header */}
@@ -240,16 +528,6 @@ export function ConfiguracoesPage() {
           <Settings className="h-5 w-5 text-brand-400" aria-hidden="true" />
         </div>
       </div>
-
-      {/* Staff banner */}
-      {!isOwner && (
-        <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 mb-6">
-          <Lock className="h-4 w-4 text-amber-400 flex-shrink-0" aria-hidden="true" />
-          <p className="text-sm text-amber-300">
-            Apenas o proprietário pode alterar as configurações.
-          </p>
-        </div>
-      )}
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
 

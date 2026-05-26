@@ -103,7 +103,11 @@ function ProfessionalCard({
         </div>
         <p className="text-xs text-slate-400 mt-0.5 truncate">{professional.email}</p>
         <p className="text-xs text-slate-500 mt-0.5">
-          {professional.role === 'Owner' ? 'Proprietário' : 'Colaborador'}
+          {professional.role === 'Owner'
+            ? 'Proprietário'
+            : professional.role === 'Receptionist'
+              ? 'Recepcionista'
+              : 'Colaborador'}
         </p>
       </div>
 

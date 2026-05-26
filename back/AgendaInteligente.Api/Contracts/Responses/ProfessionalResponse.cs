@@ -7,7 +7,9 @@ public record ProfessionalResponse(
     string Name,
     string Email,
     ProfessionalRole Role,
+    bool CanManageServices,
     string? CalendarColor,
     bool IsActive,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? WorkingHoursJson = null
 );

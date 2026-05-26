@@ -14,11 +14,12 @@ namespace AgendaInteligente.Api.Tests.Services;
 public sealed class ScheduleServiceTests
 {
     // ── Fixtures ───────────────────────────────────────────────────────────────
-    private readonly Mock<IScheduleRepository>       _scheduleRepoMock = new();
-    private readonly Mock<IServiceCatalogRepository> _serviceRepoMock  = new();
-    private readonly Mock<ITenantSettingsRepository> _settingsRepoMock = new();
-    private readonly Mock<ICalendarSyncQueue>        _syncQueueMock    = new();
-    private readonly Mock<IWaitlistService>          _waitlistSvcMock  = new();
+    private readonly Mock<IScheduleRepository>       _scheduleRepoMock    = new();
+    private readonly Mock<IServiceCatalogRepository> _serviceRepoMock     = new();
+    private readonly Mock<ITenantSettingsRepository> _settingsRepoMock    = new();
+    private readonly Mock<IProfessionalRepository>   _professionalRepoMock = new();
+    private readonly Mock<ICalendarSyncQueue>        _syncQueueMock       = new();
+    private readonly Mock<IWaitlistService>          _waitlistSvcMock     = new();
     private readonly ScheduleService _sut;
 
     // IDs fixos para legibilidade dos testes
@@ -48,6 +49,7 @@ public sealed class ScheduleServiceTests
             _scheduleRepoMock.Object,
             _serviceRepoMock.Object,
             _settingsRepoMock.Object,
+            _professionalRepoMock.Object,
             _syncQueueMock.Object,
             _waitlistSvcMock.Object,
             NullLogger<ScheduleService>.Instance);
@@ -921,7 +923,7 @@ public sealed class ScheduleServiceTests
             .ReturnsAsync((IEnumerable<Schedule> list, CancellationToken _) => list.ToList());
 
         var result = await _sut.CreateRecurringAsync(
-            CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 4);
+            CustomerId, ProfessionalId, ServiceId, firstStart, repeatType: "weekly", repeatCount: 4);
 
         Assert.Equal(4, result.Count);
         // Datas geradas: +0w, +1w, +2w, +3w
@@ -949,7 +951,7 @@ public sealed class ScheduleServiceTests
 
         var ex = await Assert.ThrowsAsync<ScheduleConflictException>(
             () => _sut.CreateRecurringAsync(
-                CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 3));
+                CustomerId, ProfessionalId, ServiceId, firstStart, repeatType: "weekly", repeatCount: 3));
 
         Assert.Contains(firstStart.AddDays(7), ex.SuggestedAlternatives);
     }
@@ -972,7 +974,7 @@ public sealed class ScheduleServiceTests
 
         await Assert.ThrowsAsync<ScheduleConflictException>(
             () => _sut.CreateRecurringAsync(
-                CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 3));
+                CustomerId, ProfessionalId, ServiceId, firstStart, repeatType: "weekly", repeatCount: 3));
 
         // CreateBatchAsync nunca deve ser chamado
         _scheduleRepoMock.Verify(
@@ -980,13 +982,13 @@ public sealed class ScheduleServiceTests
     }
 
     [Fact]
-    public async Task CreateRecurringAsync_WhenCountExceeds52_ThrowsArgumentException()
+    public async Task CreateRecurringAsync_WhenCountExceedsMax_ThrowsArgumentException()
     {
         SetupServiceExists();
         await Assert.ThrowsAsync<ArgumentException>(
             () => _sut.CreateRecurringAsync(
                 CustomerId, ProfessionalId, ServiceId,
-                DateTime.UtcNow.AddDays(1), repeatWeeklyCount: 53));
+                DateTime.UtcNow.AddDays(1), repeatType: "weekly", repeatCount: 261));
     }
 
     [Fact]
@@ -996,7 +998,7 @@ public sealed class ScheduleServiceTests
         await Assert.ThrowsAsync<ArgumentException>(
             () => _sut.CreateRecurringAsync(
                 CustomerId, ProfessionalId, ServiceId,
-                DateTime.UtcNow.AddDays(1), repeatWeeklyCount: 0));
+                DateTime.UtcNow.AddDays(1), repeatType: "weekly", repeatCount: 0));
     }
 
     [Fact]
@@ -1011,7 +1013,7 @@ public sealed class ScheduleServiceTests
             .ReturnsAsync((IEnumerable<Schedule> list, CancellationToken _) => list.ToList());
 
         await _sut.CreateRecurringAsync(
-            CustomerId, ProfessionalId, ServiceId, firstStart, repeatWeeklyCount: 3);
+            CustomerId, ProfessionalId, ServiceId, firstStart, repeatType: "weekly", repeatCount: 3);
 
         _syncQueueMock.Verify(q => q.EnqueueAsync(
             It.Is<CalendarSyncMessage>(m => m.Operation == CalendarSyncOperation.Upsert),
